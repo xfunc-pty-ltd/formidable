@@ -310,9 +310,9 @@ front of you reaches:
 
 | Call | Reached when | Planned with |
 |---|---|---|
-| `orderFields` | the order resolve itself runs | `Setup<IReadOnlyList<string>>` — it hands back the ordered ids |
+| `orderFields` | the form asks for its reading order (the order resolve) | `Setup<IReadOnlyList<string>>` — it hands back the ordered ids |
 | `focusField` | a blocked submit, a summary-entry click, `FormidableForm`'s own error-carrying `ApplyServerIssues`, or a page calling `FocusFirstErrorAsync()` moves focus | `Setup<bool>` — did the element take focus? Each call passes the field's element id (`FormidableFieldId.For(field)`) and the id of its message list (`FormidableFieldId.MessagesFor(field)`). When a `FocusFallback` answers `true`, the retry that follows adds a third argument, `true`. Every other call passes the two ids alone, so `call => call.Arguments.Count == 3` plans the retry apart. With it, the script answers `false` and leaves focus alone when the visitor has pressed a key or pointer button since the miss and focus sits on another control. |
-| `registerClickRecovery` | the form establishes the displaced-click guard | `Setup<bool>` — did the script find an element to scope the guard to? |
+| `registerClickRecovery` | the form establishes the displaced-click guard (the guard that re-delivers a button click a moving message displaced) | `Setup<bool>` — did the script find an element to scope the guard to? |
 | `releaseClickRecovery` | that guard is released | `SetupVoid` |
 | `observeLayout` | the form establishes the browser-side layout observer beside the resolve | `SetupVoid` |
 | `disconnectLayoutObserver` | that observer is released | `SetupVoid` |
@@ -374,7 +374,7 @@ from under the pointer.
 ### Waiting for the answer
 
 A verdict lands a render or two after the event that asked for it, and an async rule lands later
-still. Three habits cover it:
+still. Four habits cover it:
 
 - **Assert through `WaitForAssertion`.** It retries until the assertion passes or the timeout ends,
   which is what makes a message that arrives one render later a pass rather than a race.
@@ -392,8 +392,9 @@ still. Three habits cover it:
   the lambda returns or awaits.
 - **Engine calls that raise `StateChanged` go inside `InvokeAsync` too.** The rule covers any call
   that can raise it. Among them: `Engine.MarkTouched(...)`, `Engine.ApplyServerIssues(...)`,
-  `EditContext.NotifyFieldChanged(...)`, the form's `MarkServerRequest()` (it takes in rendered-field
-  changes before it marks), and the `FormidableFieldContext` helpers that reach them
+  `EditContext.NotifyFieldChanged(...)`, the form's `MarkServerRequest()` (before it marks, it
+  catches up with any field that has started or stopped rendering), and the `FormidableFieldContext`
+  helpers that reach them
   (`NotifyChanged()`, `MarkTouched()`, `AddItem`, `RemoveItem`, `Edit` and `TryEdit`). The engine
   raises `StateChanged` on the renderer's dispatcher, so a call from the test thread throws Blazor's
   dispatcher error.

@@ -47,9 +47,9 @@ class and no `aria-invalid`. A passing value still earns `Valid`, and a running 
 ## What puts green on a field?
 
 A field wears `Valid` once three things hold at the same time. The field is touched or modified (a
-committed change does both). It has no issue to show, of any severity. And every rule the submit
-profile selects has answered for the value as it stands, with none of those answers failing the
-field. Here is one field, from the moment it renders to the class it wears:
+committed change, a value change the form has been told of, does both). It has no issue to show, of
+any severity. And every rule the submit profile selects has answered for the value as it stands,
+with none of those answers failing the field. Here is one field, from the moment it renders to the class it wears:
 
 ```mermaid
 flowchart TD
@@ -72,54 +72,59 @@ The second and third conditions are separate on purpose. A field still carrying 
 info is not `Valid`: it still has something the user might act on. Green is a promise about submit
 rather than a note that the visitor stopped by, so a failing answer counts even where no message
 shows it. That is why an emptied required box wears no confirmation border. Until an answer has
-landed, a clean-looking field wears no tier class rather than a green one.
+landed, a clean-looking field wears no state class other than `Pending`, rather than a green one.
 
 An input bound straight to a dictionary's entry, such as `model.Answers[key]`, never wears `Valid`,
 whatever its value, because the form cannot tell which entry a failure belongs to. An input bound to
-a member of an object the dictionary holds, such as `model.Answers[key].Value`, can wear it while
-that member fails
+a member of an object the dictionary holds, such as `model.Answers[key].Value`, can wear `Valid`
+while that member fails
 ([Can I validate each entry of a dictionary?](collections-and-row-identity.md#can-i-validate-each-entry-of-a-dictionary)).
 
 An input bound by an index to a collection that is not a list, such as one whose int indexer reads
 by id, never wears `Valid` either. A `KeyedCollection` row bound by a key that is not all digits,
-such as `"b"`, never wears `Valid` either. In a collection whose int indexer reads by id and that
-lacks the non-generic `IList`, an input bound to a member of a row object can wear `Valid` while
-that member fails
+such as `"b"`, never wears `Valid` either. Take a collection whose int indexer reads by id and that
+lacks the non-generic `IList`. An input bound to a member of one of its row objects can wear `Valid`
+while that member fails
 ([Collections and row identity](collections-and-row-identity.md#what-if-my-collection-reads-by-id-or-key-or-has-no-indexer)).
 
 Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit-coverage-vouch).
 
 ### Which check turns a field green?
 
-On the default profiles, the live check behind a committed change supplies that answer, unless
-`LiveDebounce` is `Timeout.InfiniteTimeSpan`. The live check answers that way only on a validator
-the engine can take rule by rule, or with `TrackFormValidity` on. FluentValidation's
-`AbstractValidator` is one unless you set `ClassLevelCascadeMode.Stop` or override `PreValidate` or
-`ValidateAsync`, as
-[Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit) says.
+On the default profiles (`LiveProfile` unset, so the live check runs the submit profile), the live
+check behind a committed change supplies the answer green waits for, unless `LiveDebounce` is
+`Timeout.InfiniteTimeSpan`. It does so only on a validator the engine can take rule by rule, or with
+`TrackFormValidity` on. Taking a validator rule by rule means running its rules separately, so one
+check can reuse what another found for the same values. FluentValidation's `AbstractValidator`
+allows it unless you set `ClassLevelCascadeMode.Stop` or override `PreValidate` or `ValidateAsync`,
+as [Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit) says.
 
 [`LiveProfile`](options.md#liveprofile) tracks the submit profile, so that check runs the submit
 rules. One answer covers the form, not only the changed field. A submit, and the whole-form re-check
-after one, turn fields green the same way.
+each edit after a submit or server reply brings ([`RefreshDebounce`](options.md#refreshdebounce)
+later), turn fields green the same way.
 
 With no `LiveDebounce`, that live check starts at the change itself. With a finite one, it starts
-once the form has gone `LiveDebounce` without a committed change, and before a submit, green
-arrives when that check lands.
+once the form has gone `LiveDebounce` without a committed change. Before a submit, green arrives
+when that check lands.
 
 A validator the engine cannot take rule by rule earns green only from a check that answers the whole
 model: a submit, the whole-form re-check, a load of values, or `TrackFormValidity`, never a live
-check while tracking is off.
+check while tracking is off. A live check's messages show either way. Such a validator's green reads
+the last whole-form answer the library kept, and the library keeps a live check's answer that way
+only while tracking is on.
 
-[`TrackFormValidity`](options.md#trackformvalidity) covers what is left. A form that narrows
-`LiveProfile` past the submit rules gets green from its validity check. A validator the engine
-cannot take rule by rule gets it from the live check on the default profiles, and from the validity
-check elsewhere. A page that calls `DiscloseLoadedValuesAsync` answers for the values it loaded
+[`TrackFormValidity`](options.md#trackformvalidity) covers what is left with its validity check, a
+whole-form check by the submit profile that keeps `IsFormValid` current. A form that narrows
+`LiveProfile` past the submit rules gets green from that check. A validator the engine cannot take
+rule by rule gets green from the live check on the default profiles, and from the validity check
+elsewhere. A page that calls `DiscloseLoadedValuesAsync` answers for the values it loaded
 itself, with no validity check needed.
 
 The validity check also covers a `LiveDebounce` of `Timeout.InfiniteTimeSpan`, a window that never
 closes and so never starts the live check. With tracking on, edits before the first submit or
-server reply start a validity check of their own, one for each burst of edits less than
-`RefreshDebounce` (300 ms) apart, that long after the burst's last edit. Green after the edits
+server reply start a validity check of their own. Edits less than `RefreshDebounce` (300 ms) apart
+form one burst, and its check runs that long after the burst's last edit. Green after the edits
 comes from that check. Without tracking, green after an edit comes from a submit, the
 whole-form re-check or a load of values.
 
@@ -128,9 +133,10 @@ Why: [how the engine works: which checks count](how-the-engine-works.md#the-subm
 ### Why does green survive a row arriving, or an edit elsewhere?
 
 Because the answer behind a border is kept until a fresh one lands. A row arriving or a virtualized
-panel scrolling does not blink a green border: the engine keeps the answer it last gave until the
-whole-form re-check that same move starts lands a fresh one. That re-check also answers for a model
-changed alongside the markup without a notification, so green describes the model, not the markup.
+panel scrolling does not blink a green border. The move starts a whole-form re-check, and the
+engine keeps the answer it last gave until that re-check lands a fresh one. That re-check also
+answers for a model changed alongside the markup without a notification, so green describes the
+model, not the markup.
 
 And while a check that answers the submit rules is on its way, one edit does not blank every other
 field's confirmation border. On the default profiles, unless `LiveDebounce` is
@@ -139,8 +145,8 @@ take rule by rule, every field the edit did not touch keeps its green while that
 way, and its answer then decides. The edited field itself earns no green until its own answer lands.
 
 Under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` with `TrackFormValidity` on, the check on its
-way is the validity check that edits before the first submit or server reply start, one for each
-burst, `RefreshDebounce` after the burst's last edit. On a validator the engine can take rule by rule,
+way is a validity check. Edits before the first submit or server reply start one per burst,
+`RefreshDebounce` after the burst's last edit. On a validator the engine can take rule by rule,
 every other field keeps its green from the edit until that check answers, an async rule's wait
 included. The edited field earns green when the check answers, if its value passes.
 
@@ -205,8 +211,9 @@ The owner segment names the instance, so a different model or a different collec
 different one, all but certainly (the exception is
 [below](#can-two-fields-end-up-with-the-same-id)). Nothing you write can name that segment. The
 model-level field gets `form` as its name segment rather than an empty one: that is the field with
-an empty `FieldIdentifier.FieldName`, the one the defensive gate in
-[Disclosure](disclosure.md) targets.
+an empty `FieldIdentifier.FieldName`. The defensive gate, the form's own message when every failing
+field is hidden, lands there
+([Disclosure](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)).
 
 Why: [how the engine works: how an id is derived](how-the-engine-works.md#how-an-id-is-derived).
 

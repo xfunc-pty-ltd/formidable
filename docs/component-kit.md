@@ -84,7 +84,7 @@ a real `EditForm` underneath, so native `InputBase` descendants, `ValidationMess
 | `OnValidSubmit` | `EventCallback<SubmitOutcome>` | unbound | Runs when the submit pipeline passes, with the [`SubmitOutcome`](severity.md#does-a-warning-or-an-info-block-the-submit) it produced. A parameterless handler binds too. |
 | `OnInvalidSubmit` | `EventCallback<FormidableInvalidSubmitContext>` | unbound | Runs when it blocks, with a context carrying that outcome and the [suppression call](#suppressing-the-automatic-focus). A rule that fails during the check blocks it too, and the outcome's `Fault` then carries what was thrown, unless a newer submit or load took the check's place. A parameterless handler binds too. |
 | `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether the form moves focus itself on a blocked submit and on a rejected round trip. A blocked submit moves no focus once a newer submit's check has begun; the newer one moves focus itself if it blocks. |
-| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a move that missed: make the element reachable, return `true`, and it retries once. A newer move cancels the retry, unless a focus service of your own is registered transient. With the focus service `AddFormidableBlazor()` registers, the visitor moving focus to another control cancels the retry too ([what counts](#focusfallback)). |
+| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a move that missed: make the element reachable, return `true`, and it retries once ([when it does not](#focusfallback)). |
 | `PrepareFocus` | `Func<FieldIdentifier, ValueTask>?` | `null` | Awaited before each move this form makes, so the page can clear the way first. |
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered `<form>`, under the four positions below. |
 
@@ -268,7 +268,7 @@ await _form!.ResetAsync(new Order());     // a different instance — needs @bin
 | When | What you see |
 |---|---|
 | Called with nothing | The engine and the `EditContext` are rebuilt over the model instance already bound; the model's values are not written. |
-| What the old engine held | Gone: touched and modified state, the message store, the advisory buckets, `HasSubmitted`, and any whole-form re-check still waiting. |
+| What the old engine held | Gone: touched and modified state, the message store, the warnings and infos it held outside that store, `HasSubmitted`, and any whole-form re-check still waiting. |
 | A `SubmitAsync` still awaiting its answer | Abandoned with that engine: neither callback fires, focus stays, nothing re-renders, and it returns a blocked outcome carrying nothing. `IsSubmitting` reads `false` from the reset on, until a later submit starts. |
 | An awaited `Edit` or `TryEdit` on a field's context, still waiting on its edit | Reports once the edit completes (a `TryEdit` only on `true`): to the rebuilt form when the reset kept the model instance, and nowhere after a swap to a new one. |
 | Called with a model but no `ModelChanged` bound | Throws, naming `@bind-Model` as the fix. |
@@ -298,11 +298,12 @@ await _form!.DiscloseLoadedValuesAsync();
 <!-- Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor.cs` -->
 
 It validates the whole model under `SubmitProfile`, then decides field by field on whether the field
-**holds a value**:
+**holds a value**. A field it engages counts as one you have changed, so its messages show from then
+on:
 
 | The field | What it is marked | What you see |
 |---|---|---|
-| Holds a value no rule fails with an error | Touched and engaged | The valid class, or whichever advisory tier its warnings and infos earn |
+| Holds a value no rule fails with an error | Touched and engaged | The valid class, or the warning or info class its warnings and infos earn |
 | Holds a value the rules do fail | Touched and engaged | Its message, inline and in the summary |
 | Holds a value, and a component renders it with `WaitForSubmit` | Touched and engaged | The valid class when no rule fails with an error, and no class otherwise. Its messages wait until a submit answers or a server reply is applied; a submit that ends without an answer leaves them waiting ([the wait](options.md#waitforsubmit-per-component-not-a-formidableoptions-property)) |
 | Holds nothing: null, a blank or whitespace-only string, an empty collection, or a non-nullable value type's own default | Neither | Nothing, unstyled and silent, with any required mark it carries still standing |
@@ -317,7 +318,7 @@ touched.
 | A saved `false` in a `bool?` | An answer. An untouched `bool` is not: non-nullable value types err to silence, so model optional values as `T?`. |
 | The constructor seeds a placeholder your rules reject | Rejected the moment the values load: a seeded value is a value. |
 | The constructor seeds the type's default | Silent: a default is not a value. |
-| The validator cannot report its rules | Wrong values still disclose, needing only the model; nothing is confirmed, which needs the validator's own field list. |
+| The validator cannot report its rules | A wrong value still shows its message, since that needs only the model. The load gives no passing field the valid class, because that needs the validator's own list of fields. |
 | The field is a collection row, or sits inside one | A field inside a row is confirmed exactly as a top-level one, at its own input: the confirming list is the validator's declared shape. A row that is itself a string or a number is confirmed at its own input too, and a rule on each row, such as `RuleForEach(x => x.Tags).NotEmpty()`, is answered there, not at the list's own component. In an array, a `List<T>`, a `Collection<T>` or a list that implements only `IList<T>` or `IReadOnlyList<T>`, filled in means what `NotEmpty()` means. In any other list, such a row's zero or `false` held as a nullable or an `object` counts as empty, so it stays silent ([a list of strings or numbers](collections-and-row-identity.md#how-do-i-bind-a-list-of-strings-or-numbers)). |
 | A value cannot be read (a null owner on its path; a model-level failure naming no member) | Nothing is claimed: the field stays unstyled. |
 | It runs | One whole-model check, async rules included, then the check that discloses what it found. It moves no focus. |
@@ -471,7 +472,7 @@ where `min` and `max` splat through `AdditionalAttributes` untouched.
 | `SetCurrentValueAsync`, `CommitValueAsync` and `NotifyChanged` are commit-and-notify in one call, or the two halves apart | For a control driving a commit from a handler of its own rather than through `AddValueBinding`. |
 | `SyncsDomValueOnBlur` and `SyncDomValueAsync` bind `blur` in every `UpdateOn` mode and run your write there — after any consumer-splatted `@onblur`, and before the notification `OnBlur` delivers, which does not wait for the write to finish | Override both and inject `IFormidableDomValueSync`. The write is the override's whole job. |
 | `OnParametersSet` is where the field resolves, registers, and binds the engine subscription | Call `base` from any override, or the control registers nothing and never re-renders as checks start and finish. |
-| `OnAfterRender` is where the row-key checks judge what the last parameter set found | Call `base` from any override of the synchronous `OnAfterRender`, or `VerifyRowKeys` and `ReportStaleRegistrations` fall silent for the control. |
+| `OnAfterRender` is where the row-key checks (`VerifyRowKeys` and `ReportStaleRegistrations`, which catch a component whose accessor no longer names the field it registered) judge what the last parameter set found | Call `base` from any override of the synchronous `OnAfterRender`, or both checks fall silent for the control. |
 | `Dispose` is non-virtual and always releases the registration and the subscription | Override `DisposeCore` for resources of your own. A control implementing `IAsyncDisposable` has to call `Dispose()` from its `DisposeAsync`, since Blazor calls only the async overload when a component implements both. |
 | `ObservesEngineState` and `OnEngineStateChanged` are why a control re-renders as checks on its field start and finish | Leave them alone unless you mean it: `false` freezes the state class, `aria-invalid`, `aria-describedby` and `aria-required` at whatever the last render gave them. The base re-renders only for a change whose `Includes` names the control's field, with the row-key checks on or off. Override `OnEngineStateChanged` and call `base` to keep that field-scoped re-render, or call `StateHasChanged` yourself for a control that must redraw on every change. Kit components rendered inside your control's own markup are judged by the row-key checks when your control renders (which the base does for its field's changes) and when its parent renders. To judge them at form-wide changes too, override `OnEngineStateChanged`, call `base`, and call `InvokeAsync(StateHasChanged)` when `FormChanged` is set and `Context.Engine.Options` has either check on. |
 
@@ -861,7 +862,7 @@ them until you say otherwise. Within each group, entries follow the page's order
 | `GroupByField` | `bool` | `false` | [One entry per field per band](#one-entry-per-field) instead of one per issue. |
 | `MaxItems` | `int?` | `null` | [The most entries a band renders](#capping-the-list). `null` is all of them; a negative value throws from `OnParametersSet`. |
 | `OverflowTemplate` | `RenderFragment<IReadOnlyList<VisibleIssue>>?` | `null` | What a capped band renders in place of [the entries it held back](#capping-the-list), which it receives — never an empty list, and once for each band that held anything back. |
-| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a click whose focus move missed: make the element reachable, return `true`, and it retries once. A newer move cancels the retry, unless a focus service of your own is registered transient. With the focus service `AddFormidableBlazor()` registers, the visitor moving focus to another control cancels the retry too ([what counts](#focusfallback)). |
+| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a click whose focus move missed: make the element reachable, return `true`, and it retries once ([when it does not](#focusfallback)). |
 | `PrepareFocus` | `Func<FieldIdentifier, ValueTask>?` | `null` | Awaited once per click, before the first focus attempt, so the page can clear the way first; a `FocusFallback` retry does not run it again. |
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the persistent wrapper and reaching nothing below it, since the regions and every element inside them are contract. A splatted `class` merges, the splatted value first and `formidable-summary` after. |
 
@@ -1090,7 +1091,7 @@ page's. [Migration guide](migration-guide.md) has when to reach for it.
 | `Validator` | `IModelValidator<TModel>?` | `null` (from the container) | The validator this form validates through, whole ([Need to know](#need-to-know)). |
 | `ChildContent` | `RenderFragment<FormidableFormContext>?` | `null` | The content the cascade reaches, handed the `FormidableFormContext` as `context` (or as whatever a `Context="..."` renames it to, which the Razor compiler asks for on this element or on the `EditForm` around it). With none, the component renders nothing at all, cascade included, rather than an empty wrapper. The context's `IsSubmitting` always reads `false` here, because the page's own handler runs the submit and keeps the flag ([I want to lock the Submit button while the form submits](recipes.md#i-want-to-lock-the-submit-button-while-the-form-submits)). |
 | `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether a submit blocked through `ValidateForSubmitAsync()` moves focus itself. It never gates `FocusFirstErrorAsync()`, which is the page deciding. |
-| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | [Recovers a move that missed](#focusfallback): make the element reachable, return `true`, and it retries once. A newer move cancels the retry, unless a focus service of your own is registered transient. With the focus service `AddFormidableBlazor()` registers, the visitor moving focus to another control cancels the retry too. |
+| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a move that missed: make the element reachable, return `true`, and it retries once ([when it does not](#focusfallback)). |
 | `PrepareFocus` | `Func<FieldIdentifier, ValueTask>?` | `null` | [Awaited before each move this component makes](#preparefocus), so the page can clear the way first. |
 
 There is no `Model` parameter: the model is the cascaded `EditContext`'s, and one of another type
@@ -1114,7 +1115,7 @@ throws. Replacing that `EditContext` rebuilds the engine.
 | A submit through `ValidateForSubmitAsync()` blocks | Focus lands on the first error as under `FormidableForm`: same `FocusFirstErrorOnInvalidSubmit` switch, `PrepareFocus` awaited, `FocusFallback` threaded in. |
 | That first error is the form's own message, because every failing field is hidden | The move aims at the form, which takes focus only where the page writes the model-level id and `tabindex="-1"` on its `EditForm` (the attribute table below). Without them the move misses, and a `FocusFallback` is handed the model-level field, whose `FieldName` is empty. |
 | A summary lists issues, or "first" is chosen | The engine's order, not the page's: nothing here resolves where the fields sit ([Migration guide](migration-guide.md#attach-mode-lists-issues-in-the-engines-order-not-the-pages)). |
-| The page offers the [displaced-click guard](#the-click-a-disclosure-displaces) neither candidate | That section's diagnostic, once per context: it stays until the cascaded `EditContext` is replaced. |
+| The page gives [the guard that recovers a displaced click](#the-click-a-disclosure-displaces) neither of the two elements it looks for | That section's diagnostic, once per context: it stays until the cascaded `EditContext` is replaced. |
 
 `ChildContent` is a typed fragment and so is `EditForm`'s own, so the Razor compiler asks for a
 `Context="..."` on one of the two. What collides is the declaration, not any use of it. Everything
@@ -1226,23 +1227,28 @@ the handler keeps its own flag.
 
 For a live read of another field's state, subscribe to the engine's `StateChanged`. Its
 [arguments](engine-reference.md#iformidableengine) say what moved. `Includes(field)` takes the
-`FieldIdentifier` of the field you read (`FieldIdentifier.Create(() => Model.B)`) and answers whether
-the change moved that field's state or messages. `FormChanged` says something form-wide moved (the
-reading order, `IsFormValid`, `IsValidating`, `IsSubmitting` or `HasSubmitted`). In the handler, call
-`StateHasChanged` when `Includes` names your field or `FormChanged` is set.
+`FieldIdentifier` of the field you read and answers whether the change moved that field's state or
+messages. `FormChanged` says something form-wide moved (the reading order, `IsFormValid`,
+`IsValidating`, `IsSubmitting` or `HasSubmitted`). In the handler, call `StateHasChanged` when
+`Includes` names your field or `FormChanged` is set.
 
 Put that read in a component of your own, not in markup, which cannot subscribe. Take the form's
 context as a `[CascadingParameter] FormidableFormContext`; subscribe to its `Engine.StateChanged` as
 the parameters are set, subscribe again when the engine instance has changed (a reset rebuilds it),
 and unsubscribe on dispose.
+
+The context holds your model only as `EditContext.Model`, an `object`, so hand the component the
+model as a parameter too. The component builds the identifier it tests from that parameter (named
+`Model` here) and the other field the hint reads (`B` here): `FieldIdentifier.Create(() => Model.B)`.
 [I want my own summary markup](recipes.md#i-want-my-own-summary-markup) is the worked example; its
 handler redraws on every change where yours tests `Includes` first.
 
 > [!NOTE]
 > While `VerifyRowKeys` or `ReportStaleRegistrations` is on, a `FormidableField` also renders for any
 > form-wide change (the form starting or stopping checking, say) and for a change to a field of its
-> own name on another object. Each of those renders lets the checks judge the accessors of the
-> components inside it again.
+> own name on another object. Each of those renders re-sets the components inside it, and the checks
+> re-read each one's accessor (the `For` or `@bind-Value` expression naming its field) as it is
+> re-set.
 
 | Parameter | Type | Default | One line |
 |---|---|---|---|

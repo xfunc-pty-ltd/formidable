@@ -39,15 +39,15 @@ property's next read (a check choosing its profile, a debounce window opening, a
 for a class name). A change notifies nothing by itself; it shows when something next validates or
 renders.
 
-Where an entry below states a coarser read it governs: [`ClickRecovery`](#clickrecovery) is read
-once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrowkeys) and
+Where an entry below names a less frequent read, that read governs: [`ClickRecovery`](#clickrecovery)
+is read once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrowkeys) and
 [`ReportStaleRegistrations`](#reportstaleregistrations) once per bound component as it binds.
 
 | Option | Type | Default | What it decides |
 |---|---|---|---|
 | [`LiveProfile`](#liveprofile) | `ValidationProfile?` | `null` (tracks `SubmitProfile`) | Which profile live checking runs. |
 | [`SubmitProfile`](#submitprofile) | `ValidationProfile` | `ValidationProfile.Submit` | Which profile a submit, the whole-form re-check, a load of values and `TrackFormValidity` run. |
-| [`RefreshDebounce`](#refreshdebounce) | `TimeSpan` | 300 ms | How long the whole-form re-check waits: after an edit, once a submit or server reply has happened, and after any change to which fields are on screen. The re-check a server reply can start itself adds no wait of its own. Under a `LiveDebounce` that never closes, it also times the validity check. |
+| [`RefreshDebounce`](#refreshdebounce) | `TimeSpan` | 300 ms | How long the whole-form re-check waits: after an edit, once a submit or server reply has happened, and after any change to which fields are on screen. The re-check a server reply can start itself adds no wait of its own. Under a `LiveDebounce` that never closes, it also times `TrackFormValidity`'s validity check. |
 | [`LiveDebounce`](#livedebounce) | `TimeSpan?` | `null` (immediate) | How long after a field change before rules run, instead of at once. |
 | [`TrackFormValidity`](#trackformvalidity) | `bool` | `false` | Keeps `IsFormValid` current: on the default profiles the live check each change starts answers it, and a whole-form validity check of its own runs where `LiveProfile` narrows, under a `LiveDebounce` that never closes (before the first submit or server reply), and once as the form is built. The answer also feeds the `Valid` class. The exception: with `LiveDebounce` and `RefreshDebounce` both never closing, `IsFormValid` moves only at a submit or a load of values, and at the check that follows one you edited during. |
 | [`NormalizeOnSubmit`](#normalizeonsubmit) | `bool` | `false` | Whether a submit calls `Normalize()` first. |
@@ -178,9 +178,9 @@ has what the re-check waits for. Why:
 ### `LiveDebounce`
 
 `TimeSpan?`, defaults to `null`: a field change starts its live check at once. Set it and a change
-opens a wait instead. Another change inside the wait restarts it, and when it passes quietly one
-check runs for every field changed since it opened (one shared wait for the form, not one per
-field).
+opens a wait (the window) instead. Another change inside the wait restarts it, and when it passes
+quietly one check runs for every field changed since it opened (one shared wait for the form, not
+one per field).
 
 When the debounced check runs, the "checking" cue shows on the fields changed during the wait and
 on no field you have not changed. A field whose earlier check has not answered yet keeps its cue,
@@ -188,17 +188,21 @@ because the debounced check answers that field too.
 
 Reach for it when live rules are expensive enough that one per keystroke is the wrong trade. If
 one field's rule is the expensive one, leave `LiveDebounce` unset and let that input commit on
-`change` (the `UpdateOn` default) instead. A change to any other field then starts its check at
-once ([stop the check firing on every keystroke](async-validation.md#how-do-i-stop-the-check-firing-on-every-keystroke)),
-and a memo answers the expensive rule's repeat asks
+`change` (the `UpdateOn` default) instead.
+
+A change to any other field then still starts its check at once
+([stop the check firing on every keystroke](async-validation.md#how-do-i-stop-the-check-firing-on-every-keystroke)).
+A memo answers the expensive rule's repeat asks: `MustAsyncMemoized` on the rule reuses its answer
+for a value it checked within a window you size
 ([remember its answer](recipes.md#i-want-a-slow-async-check-to-remember-its-answer)).
 
 `LiveDebounce` and a memo work together: the wait cuts how often the check runs, and the memo cuts
 what asking again about the same value costs.
 
 With `TrackFormValidity` on, `IsFormValid` waits for the same window (a wait that never passes is
-the exception, below). On the default profiles the window's live check answers it; where
-`LiveProfile` narrows, a validity check beside that check does.
+the exception, below). On the default profiles (`LiveProfile` unset, so the live check runs the
+submit profile), the window's live check answers it. Where `LiveProfile` narrows, a validity check
+beside that check does.
 
 After a submit or server reply, an edit under a finite `LiveDebounce` starts two waits. The live
 check runs when this window passes, and the whole-form re-check runs
@@ -233,11 +237,12 @@ immediate default for a 400 ms window.
 `bool`, defaults to `false`. Keeps
 [`IFormidableEngine.IsFormValid`](engine-reference.md#iformidableengine) current (the answer a
 disabled Submit button needs) with a whole-form check by the submit profile: once when the form is
-built, then on every field change, or once per window when `LiveDebounce` is set.
+built, then on every field change, or once per window (the wait a change opens) when
+[`LiveDebounce`](#livedebounce) is set.
 
-On the default profiles the live check each change starts is that check. Where `LiveProfile`
-narrows, a validity check of its own runs beside it. Tracking adds no message and no "checking" of
-its own.
+On the default profiles (`LiveProfile` unset, so the live check runs the submit profile), the live
+check each change starts is that check. Where `LiveProfile` narrows, a validity check of its own
+runs beside it. Tracking adds no message and no "checking" of its own.
 
 A `LiveDebounce` of `Timeout.InfiniteTimeSpan` is a window that never closes, so the check cannot
 wait for it. Before the first submit or server reply, edits start a validity check of their own
@@ -246,10 +251,12 @@ Submit button disabled on `IsFormValid` then follows the form as it is filled in
 server reply, the whole-form re-check that follows each edit answers instead.
 
 A change to which fields are on screen (a row added or removed) re-checks the whole form after the
-same wait at any point in the form's life, and that re-check moves `IsFormValid` too. With
-`RefreshDebounce` also `Timeout.InfiniteTimeSpan`, neither ever runs, so after the check at build
-`IsFormValid` moves only on a submit or a load of values, and on the check that follows one you
-edited during (below).
+same wait at any point in the form's life, and that re-check moves `IsFormValid` too.
+
+With both `LiveDebounce` and `RefreshDebounce` at `Timeout.InfiniteTimeSpan`, neither runs: no
+validity check follows a burst of edits, and no re-check follows a change to which fields are on
+screen. After the check at build, `IsFormValid` then moves only on a submit, a load of values, or
+the check that follows a submit or load you edited during (below).
 
 An edit made while a submit is checking makes the submit check again, and that check sets
 `IsFormValid` for the edited values. A submit checks at most three times: once, then again up to
@@ -260,18 +267,21 @@ load answers for the values it read. So does a submit whose values you keep chan
 three of its checks.
 
 For edits made during a load, a later check answers `IsFormValid` instead. On the default profiles
-that is the live check that follows the load. Where `LiveProfile` narrows, it is the latest edit's
-own check: its own validity check under a window that never closes, the validity check its
-`LiveDebounce` window runs, or the whole-form re-check it brings after a submit.
+that is the live check that follows the load.
+
+Where `LiveProfile` narrows, the latest such edit's own check answers. After a submit or server
+reply, that is the whole-form re-check. Before one, it is the validity check the edit's
+`LiveDebounce` window runs. Under a window that never closes, it is the validity check such edits
+start of their own.
 
 For edits made through all three of a submit's checks, the latest edit's own check answers once the
 submit ends. On the default profiles that is its live check, unless a window that never closes
-holds it. Otherwise it is the validity check its `LiveDebounce` window runs, or the whole-form
-re-check it brings.
+holds it. Where `LiveProfile` narrows, or that window holds the live check, it is the whole-form
+re-check the edit brings, or the validity check a finite `LiveDebounce` window runs.
 
 Some edits made during a load, or during a submit's third check, bring no check of their own. Where
 `LiveProfile` narrows and `LiveDebounce` is unset, an edit during a load before any submit or server
-reply brings none, and a validity check runs for it `RefreshDebounce` after the load ends. When
+reply brings none. A validity check then runs for it `RefreshDebounce` after the load ends. When
 `RefreshDebounce` never passes, the validity check for an edit that brings no check of its own runs
 as the submit or load ends.
 
@@ -284,16 +294,21 @@ It costs extra where `LiveProfile` narrows: the rules the live check skipped sti
 edit, in the validity check beside it. An async rule both checks run is paid twice (a memo folds the
 pair into one round trip).
 
-On a validator the engine cannot take rule by rule, each such validity check is one whole
-`SubmitProfile` validation on top of the live check. FluentValidation's `AbstractValidator` can be
-taken rule by rule unless you set `ClassLevelCascadeMode.Stop` or override `PreValidate` or
-`ValidateAsync`, as
+A validator the engine can take rule by rule has its rules run separately, so one check can reuse
+what another found for the same values. FluentValidation's `AbstractValidator` is one unless you set
+`ClassLevelCascadeMode.Stop` or override `PreValidate` or `ValidateAsync`, as
 [Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit) says.
+On any other validator, each validity check beside a narrowed live check is one whole
+`SubmitProfile` validation on top of it.
 
 Under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` no edit starts a live check, so each validity
 check there is work of its own.
 [Async validation](async-validation.md#what-does-trackformvalidity-cost-with-async-rules) has the
 async-rule cost and what happens when several validity checks overlap.
+
+When validity checks overlap, only the latest to start can set `IsFormValid`, so one that started
+earlier changes nothing when it lands. Until the latest lands, `IsFormValid` keeps the answer it
+had, unless another check answers it first.
 
 No option narrows the validity check the way `LiveProfile` narrows the live check. An async rule
 it reaches (a lookup against your API, say) wants a memo (`MustAsyncMemoized`,
@@ -305,19 +320,22 @@ Submit blocks on an error.
 <button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
 ```
 
-With tracking off `IsFormValid` keeps its last answer, `false` on a form that has never tracked.
-With it on, it reads `false` until a whole-form check has answered once (a validity check, a live
-check on the default profiles, a submit, a load, or the whole-form re-check). Issues a server
-applied through `ApplyServerIssues` are not part of the answer.
+With tracking off, `IsFormValid` keeps its last answer, `false` on a form that has never tracked.
+With tracking on, `IsFormValid` reads `false` until a whole-form check has answered once (a validity
+check, a live check on the default profiles, a submit, a load, or the whole-form re-check). Issues a
+server applied through `ApplyServerIssues` are not part of the answer.
 
-Each time the form is built, the first read with tracking off writes a note naming this option, as a
-logged warning and a `Trace` line. `ResetAsync`, a new model, and a new `EditContext` under
-`FormidableValidator` each rebuild the form.
+Each time the form is built, the first read of `IsFormValid` with tracking off writes a note naming
+this option, as a logged warning and a `Trace` line. `ResetAsync`, a new model, and a new
+`EditContext` under `FormidableValidator` each rebuild the form.
 
-Tracking also feeds the `Valid` class, so it can put green on a field a narrowed live check could
-not, or one edited under a window that never closes
-([CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field)). Why:
-[how the engine works: what `TrackFormValidity` runs](how-the-engine-works.md#the-trackformvalidity-probe).
+Tracking also feeds the `Valid` class: with it on, each check that answers `IsFormValid` can put
+green on the fields it answers for. That reaches a field a narrowed live check could not, one edited
+under a window that never closes, and a field of a validator the engine cannot take rule by rule,
+which a live check on the default profiles turns green only while tracking is on
+([CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field)).
+
+Why: [how the engine works: what `TrackFormValidity` runs](how-the-engine-works.md#the-trackformvalidity-probe).
 
 **Sample:** [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor): a
 Submit button disabled until the validity check says yes.
@@ -361,41 +379,28 @@ script, so a host that cannot load it recovers nothing.
 
 `Func<ValidationIssue, bool?>?`, defaults to `null`. Consulted wherever the engine decides whether
 an issue may be shown: return `true` to answer yes for an issue whose field nothing renders, `false`
-to answer no, or `null` to defer to the field registry. Model-level issues (an empty `Path`)
-resolve to the form's own element, which counts as rendered for as long as the form is on the page,
-so deferring leaves them visible.
+to answer no, or `null` to defer to the field registry (the form's record of the fields its
+components have registered).
+
+Model-level issues (an empty `Path`) resolve to the form's own element, which counts as rendered for
+as long as the form is on the page, so deferring leaves them visible.
 
 Set it for the whole app with
 `builder.Services.AddFormidableBlazor(options => options.DisclosureOverride = issue => issue.Path.StartsWith("Shipping.") ? true : null);`.
 
-An answer is an input to the asking channel's own disclosure rule rather than a per-issue switch
-over what is on screen. To show a live message, the live channel consults it only under
-`LiveIssueDisclosure.EngagedAndVisible` (see [`LiveDisclosure`](#livedisclosure)). Under either
-policy, a `true` for a live error on a field nothing renders also lets that error take down [the
-form's message about hidden
-fields](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight), as an error on screen
-would.
+An answer is an input to the disclosure rule of whatever asks (the live channel, a submit or a server
+reply) rather than a per-issue switch over what is on screen. To show a live message, the live
+channel consults the override only under `LiveIssueDisclosure.EngagedAndVisible` (see
+[`LiveDisclosure`](#livedisclosure)).
+
+Under either policy, a `true` for a live error on a field nothing renders also lets that error take
+down [the form's message about hidden fields](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight),
+as an error on screen would.
 
 Under `EngagedAndVisible`, a `true` keeps a field's live message after the field leaves the
-page, while the message's path still leads to that field. A path such as `Lines[2].Sku` leads to
-whichever row is third in the list, so a row's message stays while the row is where the last check
-found it. See [Disclosure](disclosure.md#disclosureoverride-the-escape-hatch) for what each channel
-makes of an answer.
-
-A row deleted while on screen loses its message at once. A row removed with `RemoveItem` while off
-the page loses its message once the check that `RemoveItem` starts has finished.
-
-A row off the page can also lose its message after a list change moves it to another place in the
-list: a reorder, say, or an earlier row added or removed. A check that finishes after the move finds
-the row in its new place, and the message stays.
-
-A row off the page that a list change moved loses its message if a component that renders a field
-arrives or leaves anywhere on the form before the check after the move finishes. Deleting a row that
-is on the page is one such change, because that row's components leave.
-
-A check after the move can come too late in three cases. `LiveDebounce` delays it, a rule that
-awaits keeps it running, and a list change the form is not told about starts no check of its own.
-`KeepRegistered` on the row's inputs keeps the message in all three.
+page, while the message's path still leads to that field.
+[Disclosure](disclosure.md#how-long-does-the-override-keep-a-live-message) has how long a row keeps
+it, and [what each channel makes of an answer](disclosure.md#disclosureoverride-the-escape-hatch).
 
 **Sample:** [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor), whose summary
 lists every row's errors from the first submit, rows Virtualize has never rendered included.
@@ -534,7 +539,8 @@ place to look rather than a verdict. A visited-then-collapsed section stays sile
 
 `Action<StaleRegistrationReport>?`, defaults to `null`. Invoked once per stale registration
 [`ReportStaleRegistrations`](#reportstaleregistrations) detects. The report carries the component's
-type and both ends of the divergence: the field it registered, and the one its accessor names now.
+type and both ends of the divergence: the field it registered, and the one its accessor (the `For`
+or `@bind-Value` expression) names now.
 
 Set it for the whole app with
 `builder.Services.AddFormidableBlazor(options => options.StaleRegistrationDiagnostic = report => Console.WriteLine($"Stale: {report.RegisteredField.FieldName} is now {report.CurrentField.FieldName}"));`.
@@ -552,7 +558,8 @@ names and types come from the component's own accessor.
 ### `VerifyRowKeys`
 
 `bool`, defaults to `false`. A development-time check that each bound component still speaks for the
-field it registered: it re-reads its accessor on every parameter set, and a divergence throws an
+field it registered: it re-reads its accessor (the `For` or `@bind-Value` expression naming its
+field) on every parameter set, and a divergence throws an
 `InvalidOperationException` naming the field and the fix.
 
 While it is on, a kit component that can hold your components (a `FormidableField`, a message with
@@ -568,8 +575,8 @@ numbers, the element around the loop keyed by the list and no key on the rows);
 [Collections and row identity](collections-and-row-identity.md#how-do-i-catch-a-message-on-the-wrong-row)
 has the ways a page produces the divergence.
 
-[Need to know](#need-to-know) names this a coarser read: the answer is captured once, per component,
-the moment it binds, so flipping it mid-life reaches only components that bind afterward.
+Unlike most options, it is read once per component, the moment that component binds, so flipping
+it mid-life reaches only components that bind afterward.
 
 Treat it as a startup switch for Development builds.
 [`ReportStaleRegistrations`](#reportstaleregistrations) answers where a throw is the wrong severity.
@@ -582,7 +589,7 @@ it is on in every build, since the page's whole point is the row-key discipline 
 `bool`, defaults to `false`. The report-never-throw sibling of [`VerifyRowKeys`](#verifyrowkeys),
 for wherever a throw is the wrong severity: a divergence is reported rather than thrown, through the
 channels [`StaleRegistrationDiagnostic`](#staleregistrationdiagnostic) documents. The form renders
-on, misfiled messages and all; with `VerifyRowKeys` on, the exception replaces the report.
+on, messages on the wrong rows included; with `VerifyRowKeys` on, the exception replaces the report.
 
 While it is on, the same components re-render as under [`VerifyRowKeys`](#verifyrowkeys). A
 `FormidableField`, or a message with an `ItemTemplate`, also re-renders for any form-wide change and
@@ -590,15 +597,16 @@ for its field's name on another object. That re-sets the components inside it, w
 reads.
 
 One divergence is one report, repeating only after the accessor names the registered field again or
-the component rebinds. Off by default because detection is not free (the same accessor resolution
-`VerifyRowKeys` pays, at a cost [Collections and row identity](collections-and-row-identity.md)
-sizes by shape).
+the component rebinds. Off by default because detection is not free: like `VerifyRowKeys`, it
+re-reads each bound component's accessor on every parameter set.
+[What the two checks cost](collections-and-row-identity.md#what-do-the-two-checks-cost) prices that
+by the accessor's shape.
 
 ```csharp
 builder.Services.AddFormidableBlazor(options =>
 {
     options.VerifyRowKeys = builder.HostEnvironment.IsDevelopment();
-    options.ReportStaleRegistrations = true; // or only while hunting a misfiled row
+    options.ReportStaleRegistrations = true; // or only while hunting a message on the wrong row
 });
 ```
 
@@ -611,7 +619,7 @@ cost above fits the form.
 
 Where `FormidableField` wraps most of the form (a UI library's controls, or the rows of a
 collection), everything inside it re-renders as the form starts and stops checking. There, turn it
-on while you hunt a misfiled row instead.
+on while you hunt a message on the wrong row instead.
 
 This option latches as `VerifyRowKeys` does: the answer is captured once, per component, the moment
 it binds, so flipping it mid-session reaches only components binding afterward.

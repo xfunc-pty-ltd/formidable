@@ -33,7 +33,7 @@ The rest of that layer is plumbing the library owns instead, so migrating it is 
 |---|---|
 | Manually creating and rebuilding the `EditContext` when the model changes (draft load, reset) | `FormidableForm` owns that lifecycle: swapping its `Model` parameter rebuilds the `EditContext` and re-initializes validation state for you. `FormidableValidator` has no `Model` parameter and instead follows whatever `EditContext` is cascaded to it. See [Component kit](component-kit.md) |
 | A hand-written pass over a loaded record, marking its fields touched and running validation so the form does not open looking pristine | `DiscloseLoadedValuesAsync()` on either root. One call validates the whole model under the submit profile, then confirms the fields holding good values, discloses the ones holding wrong values, and leaves the empty ones silent. A field rendered with `WaitForSubmit` keeps its message back until a submit or server reply answers. See [Component kit](component-kit.md#saying-what-loaded-values-have-earned) |
-| A hand-written per-form class deciding which fields' errors are currently allowed to show | Render-registration disclosure. Whether a submit shows a field's error is a side effect of something having registered it while mounted, not code you write per form. Live checking between submits answers to engagement instead. See [Disclosure](disclosure.md) |
+| A hand-written per-form class deciding which fields' errors are currently allowed to show | Render-registration disclosure. Whether a submit shows a field's error is a side effect of something having registered it while mounted, not code you write per form. Live checking between submits answers to engagement instead: a field's messages show once the visitor has changed it or a load of values has engaged it. See [Disclosure](disclosure.md) |
 | A hand-written call to re-validate, or to manually clear stale messages, after removing a row from a collection | Neither root needs it. Both notice when the rendered field set changes, prune the departed row's live issues, and re-check the whole form after the `RefreshDebounce` wait, so removing the row is the whole edit. `NotifyFieldSetChanged()`, on `FormidableValidator` alone, runs that prune at once for a call site that reads `Engine` before the automatic prune has run; the whole-form re-check stays on its timer either way. See [Collections and row identity](collections-and-row-identity.md) and [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) |
 | A second, hand-maintained message store layered on top of the library's own, plus the bookkeeping to keep the two in sync | One single-writer `ValidationMessageStore`, owned by the engine. There's no second store to keep synchronized. See [what the message store carries](server-integration.md#why-does-a-native-validationmessage-show-a-server-error-but-not-its-warning) |
 | Hand-written plumbing to get a server's rejection back onto the fields it names, or to ask whether a check is currently running | `<FormidableValidator>` exposes the engine as [`Engine`](engine-reference.md#iformidableengine) and forwards the `ApplyServerIssues` overloads itself, so an `EditForm`-hosted form reaches the same engine pipeline in one line. The validator's apply is quiet, where `FormidableForm`'s own overloads treat an error-carrying apply like a blocked submit and move focus. See [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form) and [Server integration](server-integration.md) |
@@ -159,16 +159,19 @@ Under `<FormidableValidator>`, `FormidableModelMessage` renders the same list wi
 the validator reaches no `<form>`, so a page rendering it writes the attribute on its own `EditForm`:
 `FormidableFieldId.MessagesFor` of the model-level field.
 
-The model-level field's own id, with `tabindex="-1"`, goes on that same `EditForm`, so the
-defensive gate's summary entry has somewhere to land, and so does a blocked submit's move when
-the gate's message is its first error. The element carrying that id is also the
-first one the displaced-click guard looks for here; a page offering neither it nor a `<form>` around
-a registered field gets a diagnostic and no guard (see
+The model-level field's own id, with `tabindex="-1"`, goes on that same `EditForm`. The defensive
+gate's summary entry (the entry for the form's own message when every failing field is hidden) then
+has somewhere to land, and so does a blocked submit's move when the gate's message is its first
+error.
+
+The element carrying that id is also the first place attach mode looks for an element to scope its
+click guard to (the guard that re-delivers a button click a moving message displaced). A page
+offering neither it nor a `<form>` around a registered field gets a diagnostic and no guard (see
 [Component kit](component-kit.md#the-click-a-disclosure-displaces)).
 
-It is the same split the sections around it describe, and it has its own cause: what a Formidable
-component renders travels into attach mode, and what `FormidableForm`'s own `<form>` element carries
-does not. See
+The `aria-describedby`, the id and `tabindex` split the way `novalidate` does, for the same reason:
+what a Formidable component renders travels into attach mode, and what `FormidableForm`'s own
+`<form>` element carries does not. See
 [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form).
 
 `inert` for a Blazor Web App's
