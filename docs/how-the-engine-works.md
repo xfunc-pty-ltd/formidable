@@ -165,11 +165,14 @@ anything is engaged, to file the verdicts that disclose what those fields earned
 A list or array element is read from the collection itself, because the introspector reads
 members and an element is not one. A non-generic `IList` is read through its indexer.
 
-A list known only by `IList<T>` or `IReadOnlyList<T>` is walked to the index instead, because its
-indexer cannot be called without naming the element type, and reading it through reflection would
-trip the trimming analysers. FluentValidation numbers a collection's items in the order it
-enumerates them, so the item the walk reaches at an index is the one FluentValidation reported
-there.
+A list known only by `IList<T>` or `IReadOnlyList<T>` is walked instead, because its indexer
+cannot be called without naming the element type, and reading it through reflection would trip the
+trimming analysers. FluentValidation numbers a collection's items in the order it enumerates them,
+so the item the walk reaches at an index is the one FluentValidation reported there.
+
+Reading the loaded values walks each such list once, at its first read, and takes the rest of its
+rows from that walk. A list whose walk throws partway is walked again by the count, and the throw
+leaves the load as before. A walk per row would make that reading grow with the square of the row count.
 
 The element's declared type is the array's element type, or the type argument of the `List<T>` or
 `Collection<T>` the list is or derives from. For a list known only by its generic interface it is

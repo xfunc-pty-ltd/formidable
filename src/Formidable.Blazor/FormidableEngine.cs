@@ -739,7 +739,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     // that drops them: a row's fields registering or unregistering is exactly
                     // such a move.
                     expanded.Clear();
-                    ExpandTemplate(path, expanded);
+                    ExpandTemplate(path, expanded, walked: null);
                     foreach (var rowPath in expanded)
                     {
                         map[ResolvePath(rowPath)] = requirement;
@@ -4336,12 +4336,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         var adopted = new HashSet<FieldIdentifier>();
         var considered = new HashSet<FieldIdentifier>();
 
+        // Every value the load reads is read here, in one turn, so the lists it walks are walked
+        // once for all of its reads and the record goes when this returns: no later read can meet
+        // elements the model has since replaced.
+        var walked = new WalkedLists();
+
         foreach (var field in errors.Keys)
         {
             Consider(field);
         }
 
-        foreach (var path in DeclaredFieldPaths(profile))
+        foreach (var path in DeclaredFieldPaths(profile, walked))
         {
             Consider(ResolvePath(path));
         }
@@ -4365,7 +4370,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 return;
             }
 
-            if (TryReadLoadedValue(field, out var value, out var declaredType)
+            if (TryReadLoadedValue(field, walked, out var value, out var declaredType)
                 && !IsEmptyValue(value, declaredType))
             {
                 adopted.Add(field);
@@ -4375,6 +4380,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Reads the value <paramref name="field"/> names for the load: a list or array element from the collection itself, any other member through the introspector.</summary>
     /// <param name="field">An error site or a declared field, as <see cref="ResolvePath"/> names it.</param>
+    /// <param name="walked">The load's record of the lists it has walked, which an element of a list read only by walking comes from.</param>
     /// <param name="value">The value read.</param>
     /// <param name="declaredType">The type the emptiness test reads the value as.</param>
     /// <returns><see langword="true"/> when a value was read; <see langword="false"/> for a member or element that cannot be read.</returns>
@@ -4388,14 +4394,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // object or an interface and holding a value type's default as empty, the silent direction
     // IsEmptyValue already errs in. A digits-only name is never a member, so no member read is
     // displaced.
-    private bool TryReadLoadedValue(FieldIdentifier field, out object? value, out Type? declaredType)
+    private bool TryReadLoadedValue(FieldIdentifier field, WalkedLists walked, out object? value, out Type? declaredType)
     {
         if (ResolvedFieldExtensions.IsIndexedList(field.Model)
             && ResolvedFieldExtensions.TryParseIndex(field.FieldName, out var index))
         {
             var elements = field.Model;
             declaredType = null;
-            if (!TryReadElement(elements, index, out value))
+            if (!TryReadElement(elements, index, walked, out value))
             {
                 return false;
             }
@@ -4410,9 +4416,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>Reads the element at <paramref name="index"/> from a list <see cref="ResolvedFieldExtensions.IsIndexedList"/> accepts, the read the load and the collection count share.</summary>
     /// <param name="elements">The list.</param>
     /// <param name="index">The element's index.</param>
+    /// <param name="walked">The load's record of the lists it has walked; <see langword="null"/> outside a load, where each read of a list read only by walking walks it.</param>
     /// <param name="value">The element read; <see langword="null"/> when it cannot be read.</param>
     /// <returns><see langword="true"/> when the element was read; <see langword="false"/> past the end, or when the list refuses the read.</returns>
-    private static bool TryReadElement(object elements, int index, out object? value)
+    private static bool TryReadElement(object elements, int index, WalkedLists? walked, out object? value)
     {
         value = null;
         try
@@ -4432,6 +4439,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // without knowing its element type, so the element is found by walking it.
             // FluentValidation numbers a collection's items in the order it enumerates them, so
             // the item the walk reaches at an index is the one FluentValidation reported there.
+            // A load reads every row it names, and a walk per read would grow with the square of
+            // the row count, so in a load each such list is walked once and its rows read from
+            // that walk.
+            if (walked is not null)
+            {
+                return walked.TryRead((System.Collections.IEnumerable)elements, index, out value);
+            }
+
             var position = 0;
             foreach (var item in (System.Collections.IEnumerable)elements)
             {
@@ -4486,11 +4501,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>The paths the validator declares for <paramref name="profile"/>, each collection template expanded to one path per row the model holds.</summary>
     /// <param name="profile">The profile.</param>
+    /// <param name="walked">The load's record of the lists it has walked, which the rows of a list read only by walking are counted from.</param>
     /// <returns>The expanded paths (<c>Attendees[].Name</c> becomes one per attendee, none for an empty list); empty when the validator cannot be inspected or its selection throws.</returns>
     // A selection that throws (a mistyped ruleset name) answers with nothing rather than taking
     // the load down: the pass beside this one surfaces the exception through its own fault
     // policy, which is where a configuration error belongs.
-    private List<string> DeclaredFieldPaths(ValidationProfile profile)
+    private List<string> DeclaredFieldPaths(ValidationProfile profile, WalkedLists walked)
     {
         var expanded = new List<string>();
         if (_validator is not IRuleInspectingValidator<TModel> inspector || !inspector.CanInspectRules)
@@ -4510,7 +4526,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         foreach (var template in declared)
         {
-            ExpandTemplate(template, expanded);
+            ExpandTemplate(template, expanded, walked);
         }
 
         return expanded;
@@ -4519,7 +4535,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>Expands the first open index in <paramref name="template"/> against the model's rows and recurses for the rest, so <c>Teams[].Members[].Alias</c> yields one path per member of every team.</summary>
     /// <param name="template">A declared path, with <c>[]</c> at each collection.</param>
     /// <param name="into">Receives one path per row, or the template itself when it has no open index.</param>
-    private void ExpandTemplate(string template, List<string> into)
+    /// <param name="walked">The load's record of the lists it has walked; <see langword="null"/> outside a load.</param>
+    private void ExpandTemplate(string template, List<string> into, WalkedLists? walked)
     {
         var open = template.IndexOf("[]", StringComparison.Ordinal);
         if (open < 0)
@@ -4530,24 +4547,27 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         var head = template[..open];
         var tail = template[(open + 2)..];
-        var rows = CollectionCount(head);
+        var rows = CollectionCount(head, walked);
 
         for (var index = 0; index < rows; index++)
         {
-            ExpandTemplate($"{head}[{index}]{tail}", into);
+            ExpandTemplate($"{head}[{index}]{tail}", into, walked);
         }
     }
 
     /// <summary>The element count of the collection at <paramref name="path"/>.</summary>
     /// <param name="path">The collection's path.</param>
+    /// <param name="walked">The load's record of the lists it has walked; <see langword="null"/> outside a load.</param>
     /// <returns>The count; zero when the path resolves to nothing, to a non-collection or to an empty collection, which all mean no rows to expand into.</returns>
     // A collection that is itself an element (a row of a list of lists: Matrix[0], as Matrix[][]
     // expands) is read from its list through the load's element read, under the test
     // ToFieldIdentifier's list branch makes, because the introspector reads members and never
     // elements. Read as a member, such a row counts no cells, so its cells get no required mark
     // and a load confirms none of them. Anything else is a member, a collection a struct holds
-    // included.
-    private int CollectionCount(string path)
+    // included. In a load, a list read only by walking is counted from the load's walk of it,
+    // which the reads of its rows then share; one that refused that walk partway is counted by a
+    // walk of its own, which meets the same refusal.
+    private int CollectionCount(string path, WalkedLists? walked)
     {
         var resolved = _introspector.Resolve(_model, path);
         object? value;
@@ -4555,7 +4575,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             && resolved.PropertyName is ['[', .., ']'] token
             && ResolvedFieldExtensions.TryParseIndex(token.AsSpan(1, token.Length - 2), out var index))
         {
-            if (!TryReadElement(resolved.Owner, index, out value))
+            if (!TryReadElement(resolved.Owner, index, walked, out value))
             {
                 return 0;
             }
@@ -4569,6 +4589,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             case System.Collections.ICollection collection:
                 return collection.Count;
+            case System.Collections.IEnumerable list
+                when walked is not null
+                    && ResolvedFieldExtensions.IsIndexedList(list)
+                    && walked.TryCount(list, out var walkedCount):
+                return walkedCount;
             case System.Collections.IEnumerable sequence:
                 var count = 0;
                 foreach (var _ in sequence)
@@ -5145,4 +5170,87 @@ internal sealed class DisplacedChecks
 
     /// <summary>Whether the submit or load that began cancelled a live check that runs the submit profile, which was on its way to answering <c>IsFormValid</c>.</summary>
     public bool LiveAnswerCancelled { get; set; }
+}
+
+/// <summary>The lists one load reads only by walking them, each walked on its first read and kept for the rest of that load's reads.</summary>
+// A list known only by its generic interface is read by walking it (FormidableEngine's
+// TryReadElement), and a load reads every row it names, so a walk per read grows with the square
+// of the row count. Keyed by the instance, never by equality: two equal lists are two objects,
+// each walked on its own. A walk the list refuses partway keeps the elements before the refusal,
+// which a walk of their own reads, and a read from the refusal on fails, as a walk to it would.
+internal sealed class WalkedLists
+{
+    private readonly Dictionary<object, Walk> _walks = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Reads the element at <paramref name="index"/> of <paramref name="list"/>, walking the list on its first read.</summary>
+    /// <param name="list">A list read only by walking it.</param>
+    /// <param name="index">The element's index.</param>
+    /// <param name="value">The element read; <see langword="null"/> when it cannot be read.</param>
+    /// <returns><see langword="true"/> when the element was read; <see langword="false"/> past the end, or from the position where the list refused the walk.</returns>
+    public bool TryRead(System.Collections.IEnumerable list, int index, out object? value)
+    {
+        var elements = WalkOf(list).Elements;
+        if (index < elements.Count)
+        {
+            value = elements[index];
+            return true;
+        }
+
+        value = null;
+        return false;
+    }
+
+    /// <summary>Counts the elements of <paramref name="list"/>, walking the list on its first read.</summary>
+    /// <param name="list">A list read only by walking it.</param>
+    /// <param name="count">The element count when the walk reached the end; otherwise the number of elements before the refusal.</param>
+    /// <returns><see langword="true"/> when the walk reached the end; <see langword="false"/> when the list refused it partway.</returns>
+    public bool TryCount(System.Collections.IEnumerable list, out int count)
+    {
+        var walk = WalkOf(list);
+        count = walk.Elements.Count;
+        return walk.Complete;
+    }
+
+    /// <summary>The walk of <paramref name="list"/>, made on the first ask.</summary>
+    /// <param name="list">A list read only by walking it.</param>
+    /// <returns>The walk.</returns>
+    private Walk WalkOf(System.Collections.IEnumerable list)
+    {
+        if (!_walks.TryGetValue(list, out var walk))
+        {
+            walk = Walk.Of(list);
+            _walks.Add(list, walk);
+        }
+
+        return walk;
+    }
+
+    /// <summary>One walk of a list: the elements it reached, and whether it reached the end.</summary>
+    /// <param name="Elements">The elements, in the order the walk reached them.</param>
+    /// <param name="Complete">Whether the walk reached the end rather than meeting a refusal.</param>
+    private sealed record Walk(List<object?> Elements, bool Complete)
+    {
+        /// <summary>Walks <paramref name="list"/> to its end or to its first refusal.</summary>
+        /// <param name="list">The list.</param>
+        /// <returns>The walk.</returns>
+        public static Walk Of(System.Collections.IEnumerable list)
+        {
+            var elements = new List<object?>();
+            try
+            {
+                foreach (var element in list)
+                {
+                    elements.Add(element);
+                }
+
+                return new Walk(elements, Complete: true);
+            }
+            catch
+            {
+                // A list that refuses the walk (a consumer's own list) leaves its rows from the
+                // refusal on unread, which claims nothing, as for a member whose getter throws.
+                return new Walk(elements, Complete: false);
+            }
+        }
+    }
 }
