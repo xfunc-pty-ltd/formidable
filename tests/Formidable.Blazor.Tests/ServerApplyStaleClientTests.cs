@@ -951,14 +951,15 @@ public class ServerApplyStaleClientTests : BunitContext
         await Services.DisposeAsync();
     }
 
-    // An edit or a field-set move between the reply and its re-check delays that re-check to the
-    // usual wait, and its landing then replaces the reply, as any re-check after such a change does.
-    // One re-check runs for the reply and the change together when the change is queued ahead of
-    // the re-check's start. Until it lands, Code shows the server's answer alone.
-    [Theory]
-    [InlineData("edit")]
-    [InlineData("move")]
-    public async Task A_change_before_that_recheck_lets_it_replace_the_reply(string change)
+    // An edit between the reply and its re-check delays that re-check to the usual wait, and its
+    // landing then replaces the reply: the server never saw "abcd", and the client's answer for it
+    // passes, so Code shows nothing. One re-check runs for the reply and the edit together, since
+    // the edit is queued ahead of the re-check's start. Until it lands, Code shows the server's
+    // answer alone.
+    // Mutation that must break it: let only a field leaving the page count (drop the edit
+    // comparison), and Code keeps "Code taken" after the re-check.
+    [Fact]
+    public async Task An_edit_after_a_reply_lets_the_recheck_replace_it()
     {
         var model = new Ticket();
         var rules = new TicketRules();
@@ -971,21 +972,47 @@ public class ServerApplyStaleClientTests : BunitContext
         var runs = rules.Runs;
 
         await ApplyAsync(cut, new ValidationIssue(nameof(Ticket.Code), CodeTaken));
-        if (change == "edit")
-        {
-            await EditAsync(cut, "Code", "abcd");
-        }
-        else
-        {
-            await cut.InvokeAsync(() => cut.Render(p => p.Add(h => h.ShowNote, true)));
-            await cut.InvokeAsync(() => { }); // the posted reconcile
-        }
+        await EditAsync(cut, "Code", "abcd");
 
         Assert.Equal(0, _clock.ZeroWaits);
         Assert.Equal([CodeTaken], Messages(engine, code));
 
         await SettleAsync(cut, engine);
-        Assert.Equal(change == "edit" ? [] : [CodeTooShort], Messages(engine, code));
+        Assert.Empty(Messages(engine, code));
+        Assert.Equal(runs + 1, rules.Runs);
+
+        await Services.DisposeAsync();
+    }
+
+    // A field leaving the page between the reply and its re-check does the same, even one the reply
+    // does not name: a removed row changes the model with no edit the form hears of, so the form the
+    // re-check answers for may not be the one the server judged. Note renders from the start and
+    // goes after the reply. The re-check waits the usual time, runs once, and its landing replaces
+    // the reply with the client's answer for "ab".
+    // Mutation that must break it: never count a departure, and Code keeps "Code taken" beside the
+    // client's answer.
+    [Fact]
+    public async Task A_field_leaving_before_that_recheck_lets_it_replace_the_reply()
+    {
+        var model = new Ticket();
+        var rules = new TicketRules();
+        var cut = RenderTicket(model, new FluentValidationModelValidator<Ticket>(rules), TicketOptions("draft"), showNote: true);
+        var engine = EngineOf(cut);
+        var code = CodeOf(model);
+        await SettleAsync(cut, engine);
+        await EditAsync(cut, "Code", "ab");
+        await SettleAsync(cut, engine);
+        var runs = rules.Runs;
+
+        await ApplyAsync(cut, new ValidationIssue(nameof(Ticket.Code), CodeTaken));
+        await cut.InvokeAsync(() => cut.Render(p => p.Add(h => h.ShowNote, false)));
+        await cut.InvokeAsync(() => { }); // the posted reconcile
+
+        Assert.Equal(0, _clock.ZeroWaits);
+        Assert.Equal([CodeTaken], Messages(engine, code));
+
+        await SettleAsync(cut, engine);
+        Assert.Equal([CodeTooShort], Messages(engine, code));
         Assert.Equal(runs + 1, rules.Runs);
 
         await Services.DisposeAsync();
@@ -1128,11 +1155,12 @@ public class ServerApplyStaleClientTests : BunitContext
         _ => throw new ArgumentOutOfRangeException(nameof(config), config, null),
     };
 
-    private IRenderedComponent<TicketHost> RenderTicket(Ticket model, IModelValidator<Ticket> validator, FormidableOptions options) =>
+    private IRenderedComponent<TicketHost> RenderTicket(Ticket model, IModelValidator<Ticket> validator, FormidableOptions options, bool showNote = false) =>
         Render<TicketHost>(p => p
             .Add(h => h.Model, model)
             .Add(h => h.Validator, validator)
-            .Add(h => h.Options, options));
+            .Add(h => h.Options, options)
+            .Add(h => h.ShowNote, showNote));
 
     private IRenderedComponent<AccountHost> RenderAccount(Account model, AccountRules rules, FormidableOptions options) =>
         Render<AccountHost>(p => p

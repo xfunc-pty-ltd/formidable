@@ -27,6 +27,12 @@ public sealed class FieldRegistry
     // root's reconcile settles it.
     private readonly HashSet<FieldIdentifier> _releasedHolds = [];
 
+    // The fields that stopped counting as registered since the last TakeLeftFields: a last
+    // registration ended with no retention to keep the field. The root's reconcile reads them to
+    // learn whether a field left the page, and it decides that from the entries as they stand then,
+    // because a field can leave and register again before that reconcile runs.
+    private readonly HashSet<FieldIdentifier> _leftFields = [];
+
     // How many fields IsHeld answers true for, a field held only by a released hold included,
     // moved only as a field's held state flips, so a form that holds nothing answers IsHeld
     // without a lookup.
@@ -214,6 +220,21 @@ public sealed class FieldRegistry
     // FormidableOptions.NeverRegisteredFieldDiagnostic.
     internal bool HasEverRegistered(FieldIdentifier field) => _everRegistered.Contains(field);
 
+    /// <summary>Hands over every field that stopped counting as registered since the last call, and forgets them; empty when none did.</summary>
+    /// <returns>The fields, in no order. One that registered again since is included, so the caller tests each against the registry as it stands.</returns>
+    internal FieldIdentifier[] TakeLeftFields()
+    {
+        if (_leftFields.Count == 0)
+        {
+            return [];
+        }
+
+        var left = new FieldIdentifier[_leftFields.Count];
+        _leftFields.CopyTo(left);
+        _leftFields.Clear();
+        return left;
+    }
+
     /// <summary>Removes one registration of the field, the last one keeping or dropping the field by <paramref name="keepRegistered"/>; a field with no counted registration is left untouched.</summary>
     /// <param name="field">The field one registration of which ends.</param>
     /// <param name="keepRegistered"><see langword="true"/> retains the field as registered once its last registration ends; <see langword="false"/> also drops an earlier retention.</param>
@@ -255,6 +276,7 @@ public sealed class FieldRegistry
         if (entry.Registrations == 0 && !entry.Kept)
         {
             _entries.Remove(field);
+            _leftFields.Add(field);
         }
         else
         {

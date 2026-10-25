@@ -130,9 +130,9 @@ public interface IFormidableEngine
     /// <exception cref="ArgumentNullException"><paramref name="issues"/> is <see langword="null"/>.</exception>
     /// <remarks>
     /// A reply replaces the previous one. It stands until the next submit or load, or until the
-    /// form is re-checked after a later edit or a later change in which fields render; a live
-    /// check, or one already running when the reply arrives, leaves it. Applying sets
-    /// <see cref="HasSubmitted"/> and clears a standing
+    /// form is re-checked after a later edit or after a field leaves the form; a live check, one
+    /// already running when the reply arrives, and a re-check after only a field joining leave it.
+    /// Applying sets <see cref="HasSubmitted"/> and clears a standing
     /// <see cref="FormidableOptions.ValidationFaultMessage"/>. Only
     /// <see cref="FormidableOptions.DisclosureOverride"/> answering <see langword="false"/> hides
     /// an error. Call it from the renderer's synchronization context.

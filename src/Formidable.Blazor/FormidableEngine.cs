@@ -237,12 +237,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private readonly Dictionary<FieldIdentifier, List<ValidationIssue>> _serverAdvisories = [];
 
     // Where the server's answer stands in the engine's own clocks: the pass version, the edit
-    // stamp and the rendered-field-set generation, each read as the answer was applied. A landing
-    // compares its own begin-time readings against these, so which answer is newer is decided by
-    // what each one knew rather than by which the scheduler happened to finish last.
+    // stamp and the departure count, each read as the answer was applied. A landing compares its
+    // own begin-time readings against these, so which answer is newer is decided by what each one
+    // knew rather than by which the scheduler happened to finish last.
     private int _serverAnswerVersion;
     private int _serverAnswerEditStamp;
-    private int _serverAnswerGeneration;
+    private int _serverAnswerDepartures;
+
+    // How many rendered-field-set reconciles found a field gone from the page (HasDeparted): a field
+    // something rendered that, as the reconcile ran, nothing renders or keeps registered. Moved only
+    // in OnRenderedFieldsChanged, on the dispatcher, and read beside the generation as a pass begins.
+    // A field joining moves the generation and not this count. The count is what tells a re-check
+    // that the model behind the page may have changed with no edit the engine heard of (a removed
+    // row), so a server answer it describes no longer stands (see SupersedesServerAnswer).
+    private int _departures;
 
     // Armed by a blocked submit that disclosed no error on a field on screen (the all-suppressed
     // case the defensive gate exists for, and the case where every field an earlier submit
@@ -1594,7 +1602,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // because the emptied verdict store leaves the valid class's vouch nothing of its own to
     // read. What that refresh drops is whatever the rules stop producing: a removed row's entry
     // goes because its rule no longer fires, not because the row left, and an entry for a field
-    // a collapsed section hid survives because the rule still fails.
+    // a collapsed section hid survives because the rule still fails. That refresh replaces a
+    // standing server reply only when a field departed (see SupersedesServerAnswer); a field
+    // arriving leaves the reply in place.
     internal void OnRenderedFieldsChanged()
     {
         // Departure ends engagement, with one exception (KeptByOverride): under
@@ -1712,6 +1722,24 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // stood before the move. The generation bump extends the same argument to a pass already
         // in flight: its verdict apply checks the generation it captured at begin and declines
         // to write, so the clear cannot be undone by work that predates it.
+        //
+        // The departure count moves beside it, once for a reconcile that finds any field gone,
+        // however many. The candidates are every field whose registration ended since the last
+        // reconcile, engaged or not: a row the visitor never typed in is still a row the model
+        // lost. Each is tested as HasDeparted tests the engaged set above, against the registry as
+        // it stands now, so a field that left and registered again within one reconcile has not
+        // left. Taken here, beside the clear, so a throw earlier in this call leaves them for the
+        // next reconcile, which the reconciler runs again because it records no version for this
+        // one.
+        foreach (var field in Registry.TakeLeftFields())
+        {
+            if (HasDeparted(field))
+            {
+                _departures++;
+                break;
+            }
+        }
+
         _verdictStore.Clear();
         // The emptied store answers for nothing, so the coverage read re-derives — or, while the
         // edit stamp says the model it described still stands, holds the answer it last gave.
@@ -2264,9 +2292,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // here awaits: the stamp names the model state this pass's verdicts will answer for —
         // recording it any later would let a verdict claim an edit the validation never saw —
         // and the generation names the rendered field set they are computed against, which is
-        // what the verdict apply below checks before it writes the store.
+        // what the verdict apply below checks before it writes the store. The departure count is
+        // read with them, for the landing's test against a server answer.
         var editStamp = _editStamp;
         var generation = _verdictStore.Generation;
+        var departures = _departures;
 
         // Whether this pass ended as the current one, landed or not, which is what owes the fires
         // that deferred to it their arm (see ArmDeferredFires). A superseded pass's end owes
@@ -2360,10 +2390,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     // that waits for a submit keeps waiting, and the record of what it displaced
                     // stays whole for the check that answers in its place. The stamp and the
                     // generation are read again here, on the dispatcher, before that check reads
-                    // the model. Once the restarts are spent, a passing answer ends the submit
-                    // unanswered, in the finally below, as a cancelled submit ends. A blocking
-                    // answer lands, since it lets nothing be saved, and the edit is checked after
-                    // it (see the end of the landing below).
+                    // the model; the departure count is not, because a submit's test against a
+                    // server answer never reads it. Once the restarts are spent, a passing answer
+                    // ends the submit unanswered, in the finally below, as a cancelled submit
+                    // ends. A blocking answer lands, since it lets nothing be saved, and the edit
+                    // is checked after it (see the end of the landing below).
                     if (kind == PassKind.Submit && editStamp != _editStamp)
                     {
                         if (restartsLeft > 0)
@@ -2394,7 +2425,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     // so neither writes anything, store included.
                     _verdictStore.TryFile(executed, generation);
 
-                    if (SupersedesServerAnswer(kind, pass.Version, editStamp, generation))
+                    if (SupersedesServerAnswer(kind, pass.Version, editStamp, departures))
                     {
                         _serverErrors.Clear();
                         _serverAdvisories.Clear();
@@ -2725,23 +2756,26 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="kind">The landing pass's kind.</param>
     /// <param name="version">The version the pass took at begin.</param>
     /// <param name="editStamp">The edit stamp the pass read at begin.</param>
-    /// <param name="generation">The rendered-field-set generation the pass read at begin.</param>
-    /// <returns><see langword="true"/> for a submit begun after the apply, and for a refresh or load that read a model or field set moved since it; never for a live pass.</returns>
+    /// <param name="departures">The departure count the pass read at begin.</param>
+    /// <returns><see langword="true"/> for a submit begun after the apply, and for a refresh or load that read an edit or a departure since it; never for a live pass.</returns>
     // Two passes know nothing the reply does not. One was already running when the reply arrived;
     // the other is a refresh armed before the reply that fires after it. Either would erase the
     // newer answer with an older one, and on a filled-in form nothing the client says takes its
     // place. A submit is the visitor asking again, so any submit begun after the reply supersedes
-    // it, changed or not. A refresh or load supersedes it only once something has moved since:
-    // an edit, a load's own declared change, or the rendered field set (the one route by which a
-    // removed row's silent change to the model reaches the engine). A reading that moved was
-    // taken after the apply, so its pass began after it too. A live pass is an edit's own
-    // answer, not the settling point the server's snapshot yields to.
-    private bool SupersedesServerAnswer(PassKind kind, int version, int editStamp, int generation) =>
+    // it, changed or not. A refresh or load supersedes it only once the model may have moved
+    // since: an edit, a load's own declared change, or a field leaving the page (the one route by
+    // which a removed row's silent change to the model reaches the engine). A reading that moved
+    // was taken after the apply, so its pass began after it too. A field joining the page moves
+    // neither reading: nothing the reply named has gone, so the re-check it arms leaves the reply
+    // standing, and a server-only message on a field just opened stays. A row added after the
+    // reply joins in the same way, and the reply stands beside the new row's own answer. A live
+    // pass is an edit's own answer, not the settling point the server's snapshot yields to.
+    private bool SupersedesServerAnswer(PassKind kind, int version, int editStamp, int departures) =>
         kind switch
         {
             PassKind.Live => false,
             PassKind.Submit => version > _serverAnswerVersion,
-            _ => editStamp > _serverAnswerEditStamp || generation > _serverAnswerGeneration,
+            _ => editStamp > _serverAnswerEditStamp || departures > _serverAnswerDepartures,
         };
 
     /// <summary>Validates the model under <paramref name="profile"/>, rule by rule against the verdict store when the validator allows it and as the whole profile in one call otherwise; writes nothing.</summary>
@@ -4018,15 +4052,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="issues">The server's issues for the marked request.</param>
     /// <param name="sentAt">The mark taken as the request was sent.</param>
     /// <returns><see langword="true"/> when the reply was applied; <see langword="false"/> when it was dropped.</returns>
-    // Dropped exactly when the mark is no longer current (IsCurrent), which is when a re-check
-    // begun as the reply arrives would replace an answer applied at the mark (the refresh rule in
-    // SupersedesServerAnswer): an edit since the mark, or a load, which moves the edit stamp as it
-    // begins; a rendered-field-set change, which moves the generation; or a mark another engine
-    // took. A disposed engine drops its own marks too, since a page that held it across a reset is
-    // applying to a form no longer on the page. The test reads nothing else and writes nothing, so
-    // a dropped reply leaves every source, the message store, focus and both events exactly as
-    // they were. The default mark carries no token, so it is never current, and it applies as the
-    // unmarked overload does.
+    // Dropped exactly when the mark is no longer current (IsCurrent): an edit since the mark, or a
+    // load, which moves the edit stamp as it begins; a rendered-field-set change, which moves the
+    // generation; or a mark another engine took. A field arriving drops the reply as a field
+    // leaving does, which is wider than the refresh rule in SupersedesServerAnswer, where a field
+    // arriving leaves an applied reply standing. The two answer different questions. This one asks
+    // whether the reply was computed for the form as it stands, and a reply to a request sent
+    // before the page's fields changed was not. That one asks whether a re-check knows more than a
+    // reply already applied to this form. A disposed engine drops its own marks too, since a page
+    // that held it across a reset is applying to a form no longer on the page. The test reads
+    // nothing else and writes nothing, so a dropped reply leaves every source, the message store,
+    // focus and both events exactly as they were. The default mark carries no token, so it is
+    // never current, and it applies as the unmarked overload does.
     public bool ApplyServerIssues(IEnumerable<ValidationIssue> issues, ServerRequestMark sentAt)
     {
         ArgumentNullException.ThrowIfNull(issues);
@@ -4068,7 +4105,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // nothing this answer does not.
         _serverAnswerVersion = _version;
         _serverAnswerEditStamp = _editStamp;
-        _serverAnswerGeneration = _verdictStore.Generation;
+        _serverAnswerDepartures = _departures;
 
         // Whether the stored client answer is older than the latest edit, so that what it says
         // of a field this apply reveals may be about a value the field no longer holds.
@@ -5133,7 +5170,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
                 // Landing the verdict is the whole apply: the fresh whole-model answer replaces
                 // the submit channel's source. The server's answer went as this pass landed if
-                // the model or the field set moved after it arrived (see SupersedesServerAnswer),
+                // an edit or a departure came after it arrived (see SupersedesServerAnswer),
                 // and a client rule failing the same way keeps the message showing through the
                 // client view. What the channel SHOWS is the views'
                 // business: the reveal ledgers decide which of these entries surface — fixed

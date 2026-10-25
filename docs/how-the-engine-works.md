@@ -164,8 +164,8 @@ The indicator also covers the fields of a refresh this one answers in place of: 
 and, once `HasSubmitted` is true, one a narrowed live pass superseded or a submit or load gave back.
 
 Landing replaces the submit channel's source and reveals nothing. It clears the server store only
-when the edit stamp or the generation it read at begin had moved since the last apply: an edit, a
-load or a field-set move in between.
+when the edit stamp or the departure count it read at begin had moved since the last apply: an
+edit, a load or a departed field in between.
 
 On a form no submit or server apply has answered, the ledgers are empty and the gate unarmed, so a
 refresh armed by a field-set move discloses nothing: it answers for the submit-coverage vouch
@@ -330,7 +330,9 @@ generation.
 
 `OnRenderedFieldsChanged` also prunes departed fields from the engaged set and arms a refresh,
 whatever the form's history. When the move turns the gate on or off, it republishes the message
-store as well ([the gate latch](#the-gate-latch)).
+store as well ([the gate latch](#the-gate-latch)). When a field has departed, engaged or not, it
+moves the departure count once, which decides whether a server reply gives way to that refresh
+([what replaces the server's answer](#what-replaces-the-servers-answer)).
 
 The engine does not hear the registry's `Changed` event, so the root makes that call.
 `FormidableValidator` makes it from a continuation posted past the render batch that changed a
@@ -1021,9 +1023,11 @@ or a revealed field shows its client errors (`GateTurnsOnVisibility`). There
 `GateActive` no longer matches the gate the store carries (`_storeShowsGate`, which `RebuildStore`
 records). A field returning takes the gate down at once, and leaving again brings it back.
 
-For a server error, the refresh that move arms then replaces the reply, since the move advanced the
-generation ([what replaces the server's answer](#what-replaces-the-servers-answer)), and a
-server-only error goes with it.
+For a server error, the refresh a returning field arms leaves the reply standing when no field
+departed with it ([what replaces the server's answer](#what-replaces-the-servers-answer)), so a
+server-only error stays on the field that returned. An edit that came with the move still lets that refresh
+replace the reply. The refresh a leaving field arms replaces the reply, and a server-only error goes
+with it.
 
 Outside the case `GateTurnsOnVisibility` names, a move changes the gate through the live view, or
 through a field nothing registered that starts registering while it carries a live error. The live
@@ -1738,7 +1742,7 @@ unconditionally, one of the two places that issue is cleared (a pass landing is 
 clears both dictionaries before it reads the payload, so a replace is a wholesale swap of that one
 source and the client's own verdict sources are untouched.
 
-Beside the swap it records the version, the edit stamp and the store's generation, which decide
+Beside the swap it records the version, the edit stamp and the departure count, which decide
 which later landing replaces it ([what replaces the server's answer](#what-replaces-the-servers-answer)).
 
 Each issue is resolved to a field through the introspector ([the walk](#the-walk)) and, where it
@@ -1794,7 +1798,8 @@ each check. A check that read an earlier stamp answers for values the model no l
 landing keeps the set, whether the edit came before the reply or after.
 
 When nothing moves before it begins, the re-check the apply arms leaves the reply standing. An edit
-or a field-set move before then re-arms it at `RefreshDebounce`, and its landing replaces the reply
+or a field-set move before then re-arms it at `RefreshDebounce`. Its landing replaces the reply
+after an edit or a departed field, and leaves it standing after a move that only brought fields in
 ([what replaces the server's answer](#what-replaces-the-servers-answer)).
 
 ### Which issues an apply lands
@@ -1826,20 +1831,33 @@ answer is newer than the server's (`SupersedesServerAnswer`). A server-only issu
 first landing that is, and one a client rule agrees with continues through the client's own answer.
 
 Newer is decided by what each answer knew, not by which the scheduler finished last. An apply
-records three readings beside its swap: the version, the edit stamp and the verdict store's
-generation, which a rendered-field-set move advances. A landing compares the readings it took at
-begin against them.
+records three readings beside its swap: the version, the edit stamp and the departure count. A
+landing compares the readings it took at begin against them.
 
 A submit supersedes the server's answer when it began after the apply, changed or not, because a
 submit is the visitor asking again. A refresh or a load supersedes it only when the edit stamp or
-the generation moved after the apply; a load moves the stamp itself as it begins.
+the departure count moved after the apply; a load moves the stamp itself as it begins.
+
+The departure count moves at a rendered-field-set reconcile that finds a field gone: one whose
+registration ended since the last reconcile and that `HasDeparted` answers true for, engaged or
+not. It moves once per reconcile, however many fields left and whatever arrived beside them, so a
+step or a tab that swaps one section for another moves it.
+
+A field that left and registered again within one reconcile has not departed, and a kept
+registration never departs.
+
+A departure is the one route by which a removed row's silent change to the model reaches the
+engine, so the refresh after it answers for a model the reply may not describe. A field arriving
+moves the generation and not the count. Nothing the reply named has gone, so the refresh leaves the
+reply standing, and a server-only message on a field just opened stays. An added row arrives the
+same way.
 
 So neither a pass already in flight at the apply, nor a refresh armed before it that fires after
 it, can erase it. Supersession never cancels a pass here: each still lands its own verdict and
 ends as usual.
 
 An unmarked apply cannot see when the page sent the request. A reply to a request sent before an
-edit, arriving after it, stands until the next edit, field-set move, submit or load.
+edit, arriving after it, stands until the next edit, departure, submit or load.
 
 A marked apply can. `MarkServerRequest` returns a `ServerRequestMark` holding a token that stands
 for the engine, the edit stamp and the verdict store's generation, read as the page sends. The
@@ -1850,9 +1868,14 @@ disposed.
 The token is an object of the engine's own that holds nothing, so a mark a page keeps after its form
 is gone keeps nothing of the form alive.
 
-The two readings are the refresh rule's inputs above, so a reply is dropped exactly when a re-check
-begun as it arrives would replace it. An edit and a load move the edit stamp, and a
-rendered-field-set move advances the generation, so the mark needs no state of its own. The edit
+The mark reads the generation, not the departure count, so a field arriving after the mark drops
+the reply, though a refresh would leave an applied reply standing. The two answer different
+questions. The mark asks whether the reply was computed for the form as it stands, and a reply to a
+request sent before fields arrived was not. The refresh rule asks whether a re-check knows more than
+a reply already applied.
+
+An edit and a load move the edit stamp, and every rendered-field-set move advances the
+generation, so the mark needs no state of its own. The edit
 stamp moves when the form hears of an edit, so a value an input holds until a blur counts at the
 blur.
 

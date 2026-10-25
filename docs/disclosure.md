@@ -166,11 +166,18 @@ submit](#why-is-the-submit-blocked-with-no-message-in-sight). That message shows
 summary too.
 
 Bring one of those fields back and its message shows at the field, and the form's message gives way.
-Showing the field changes which fields are on screen, and the whole-form re-check that follows
-replaces the server's answer with the form's own. A message no client rule repeats goes at that
-re-check ([below](#why-is-it-still-showing-and-when-does-it-clear)). If that re-check comes back
-clean, the form's message stays down. If the re-check finds an error that nothing on screen shows,
-the form's message comes back.
+When the change that brought it back removed no other field and edited no value, the whole-form
+re-check that follows leaves the server's answer standing. The message stays, even a message no
+client rule repeats, until it goes as any server message does
+([below](#why-is-it-still-showing-and-when-does-it-clear)).
+
+Otherwise that re-check replaces the reply, and a message only the server raised goes with it. A
+change that shows the field by removing another (a step or a tab that replaces one section with
+another) is a field leaving the form, so the re-check after it replaces the reply. A checkbox input
+of the form's own that brings the field back (an `InputCheckbox`, say) is an edit.
+
+If the re-check that replaces the reply comes back clean, the form's message stays down. If that
+re-check finds an error that nothing on screen shows, the form's message comes back.
 
 Advisories in a server reply follow the client's own rule instead: they show only where something
 renders the field, and a hidden one reports `SuppressedIssueDiagnostic`, which a submit's own hidden
@@ -260,8 +267,9 @@ quicker: your live check shows the error again as soon as it runs the rule.
 
 A message a server reply put on screen follows a different rule. A live check for its field leaves
 it standing, and it goes at the whole-form re-check after your next committed edit (or after a
-change to which fields are on screen), at the next submit, or when a page discloses freshly loaded
-values. A client rule failing the same way keeps its message through the client's own answer
+field leaves the form), at the next submit, or when a page discloses freshly loaded values. A field
+joining the form leaves it standing, unless an edit brought it in or another field left with it. A client rule failing the same
+way keeps its message through the client's own answer
 ([Server integration](server-integration.md#what-happens-to-a-server-error-when-i-edit-the-field)).
 
 A field no submit or server reply has shown an error on stays quiet on the submit side even while

@@ -272,20 +272,73 @@ public class FormidableEngineServerApplyRaceTests
         Assert.Empty(editContext.GetValidationMessages(description));
     }
 
+    // A field leaving the page after the reply is a change the reply knows nothing of: a removed
+    // row changes the model with no edit the engine hears of.
     [Fact]
-    public void A_server_reply_gives_way_to_the_refresh_a_later_field_set_change_arms()
+    public void A_server_reply_gives_way_to_the_refresh_a_later_departure_arms()
     {
         var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
         using var engine = Build(order, editContext, new EngineOrderValidator(), time);
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var registration = engine.Registry.Register(description);
+        engine.OnRenderedFieldsChanged();
 
         engine.ApplyServerIssues([new ValidationIssue("Description", "Server says no")]);
+        registration.Dispose();
         engine.OnRenderedFieldsChanged();
         time.Advance(TimeSpan.FromMilliseconds(301));
 
         Assert.Empty(editContext.GetValidationMessages(description));
+    }
+
+    // A field that leaves and registers again before the field set is reconciled never left the
+    // page as the reconcile sees it, so the refresh that change arms leaves the reply standing.
+    // Mutation that must break it: count every field whose registration ended, without asking
+    // whether it is still gone, and the reply goes.
+    [Fact]
+    public void A_server_reply_survives_a_field_leaving_and_returning_within_one_reconcile()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = Build(order, editContext, new EngineOrderValidator(), time);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var registration = engine.Registry.Register(description);
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.FromMilliseconds(301));
+
+        engine.ApplyServerIssues([new ValidationIssue("Description", "Server says no")]);
+        registration.Dispose();
+        using var again = engine.Registry.Register(description);
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.FromMilliseconds(301));
+
+        Assert.Equal(["Server says no"], editContext.GetValidationMessages(description));
+    }
+
+    // A field kept registered (a virtualized row scrolled away) has not left the form when its
+    // component goes, so the refresh that change arms leaves the reply standing.
+    // Mutation that must break it: let a kept field count as leaving, and the reply goes.
+    [Fact]
+    public void A_server_reply_survives_a_kept_registration_ending()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = Build(order, editContext, new EngineOrderValidator(), time);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var registration = engine.Registry.Register(description, keepRegistered: true);
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.FromMilliseconds(301));
+
+        engine.ApplyServerIssues([new ValidationIssue("Description", "Server says no")]);
+        registration.Dispose();
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.FromMilliseconds(301));
+
+        Assert.Equal(["Server says no"], editContext.GetValidationMessages(description));
     }
 
     [Fact]

@@ -23,7 +23,7 @@ flowchart TD
     GUARD -- "no" --> KEEP["The last verdict stays on screen, and the page says so in its own words"]
     GUARD -- "yes" --> APPLY["ApplyServerIssues: each issue lands on its field at its severity, and the reply counts as a submit"]
     APPLY --> SHOW["Errors mark the field invalid; warnings and infos block nothing"]
-    SHOW --> CLEAR["It stands until the whole-form re-check after your next edit or a change to which fields are on screen, the next submit, or a load of values replaces it"]
+    SHOW --> CLEAR["It stands until the whole-form re-check after your next edit or after a field leaves the form, the next submit, or a load of values replaces it"]
 ```
 
 The questions below take that picture one step at a time, from the reply on the form to the
@@ -78,8 +78,8 @@ validator and does not send the form back to the endpoint that raised the error,
 clearing does not mean that server accepts the new value.
 
 The server's verdict stands until a newer whole-form answer replaces it: the whole-form re-check
-(behind the next committed edit, or a change to which fields are on screen), the next submit, or a
-page saying what its freshly loaded values have earned. At that point a server-only issue with no
+(behind the next committed edit, or a field leaving the form), the next submit, or a page saying
+what its freshly loaded values have earned. At that point a server-only issue with no
 matching client rule goes, and one the client agrees with carries on through the client's own
 answer, so a client rule failing on the same field keeps its own message throughout.
 
@@ -87,9 +87,15 @@ answer, so a client rule failing on the same field keeps its own message through
 `Timeout.InfiniteTimeSpan` turns the re-check off, and the server's answer then stands until the
 next submit or load of values.
 
-The re-check replaces the reply only after a change made since the reply arrived. A re-check
-already waiting out `RefreshDebounce` when the reply lands, and any check already running, leave
-the reply standing, since neither knows anything the reply does not.
+The re-check replaces the reply only after an edit, or a field leaving the form, since the reply
+arrived. A re-check already waiting out `RefreshDebounce` when the reply lands, and any check
+already running, leave the reply standing, since neither knows anything the reply does not.
+
+A field joining the form leaves the reply standing too, when no value was edited and no other field
+left. A section the page opens after a reply, editing nothing and removing nothing, shows a message
+only the server raised for a field in it, and the message stays. A checkbox input of the form's own that opens the
+section (an `InputCheckbox`, say) is an edit. A step or a tab that replaces one section with another
+removes fields. The re-check after either replaces the reply.
 
 The form cannot see when your page sent the request unless the page marks it as it leaves, with
 `MarkServerRequest()` ([the next section](#how-do-i-stop-a-late-reply-showing-over-newer-values)).

@@ -144,6 +144,14 @@ field: a field becomes engaged when you commit a change to it, and a load of val
 A change to which fields are on screen (a row leaving, a section collapsing) re-checks the whole
 form after the same wait at any point in the form's life.
 
+A field leaving lets that re-check replace a server reply with the form's own answer, even when the
+same change shows another field (a step or a tab that replaces one section with another).
+
+A field joining with no edit and no field leaving leaves the reply standing, so a message only the
+server raised for a field just opened stays. A section the page opens is such a change, and so is a
+row your code adds to the list directly. A row added through `AddItem` is an edit, so the re-check
+after it replaces the reply.
+
 A server reply can arrive after the visitor has changed something since the form last checked every
 field. A field the reply brings a message to then displays only the server's answer, beside any
 message from its own live check. The form's own answer joins it once the form has checked the
