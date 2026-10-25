@@ -239,8 +239,14 @@ The form's last check of every field can be older than the visitor's latest chan
 reply reveals then shows only the server's answer, and any message from its own live check, until
 the form has checked the values it now holds.
 
-It also clears any standing incomplete-validation fault, whatever the client is doing: a verdict
-has arrived to stand in for the one a check that threw could not finish.
+To check those values, the reply starts a whole-form re-check at once, with no wait of its own. It
+starts none when another check is already on its way to answer for those fields, or when the form's
+last check could not finish. The re-check leaves the reply standing unless an edit, or a field
+leaving the form, comes after the reply and before the re-check starts. The
+[`RefreshDebounce`](options.md#refreshdebounce) entry has the rest of its timing.
+
+An apply also clears any standing incomplete-validation fault, whatever the client is doing: a
+verdict has arrived to stand in for the one a check that threw could not finish.
 
 Why: [how the engine works: what an apply writes](how-the-engine-works.md#what-an-apply-writes).
 
