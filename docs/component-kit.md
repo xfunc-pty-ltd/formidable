@@ -1148,14 +1148,26 @@ arrives after the component is disposed is dropped (a marked apply returns `fals
 `ArgumentNullException` before binding and after disposal alike.
 
 A throw from your own `OnValidationStateChanged` or `Engine.StateChanged` handler follows the rule
-[under `FormidableForm`](#formidableformtmodel). It reaches the nearest `ErrorBoundary` around this
-component when the event comes from work no call of yours is waiting on. A call of yours that
-raises the event gets the throw, and `NotifyFieldSetChanged()`, `MarkServerRequest()` and a marked
-`ApplyServerIssues` are among them: each throws to you.
+[under `FormidableForm`](#formidableformtmodel): it goes to a boundary unless a call of yours raised
+the event or awaits the work that did. So the nearest `ErrorBoundary` around this component gets a
+throw from the check an edit starts, whether it runs at once or after `LiveDebounce` or
+`RefreshDebounce`. The boundary also gets a throw from this component noticing a field arrive or
+leave.
 
-An `OnValidationStateChanged` handler that throws on every call ends a Server circuit here too,
-even with a boundary, because removing this component raises that event once more. Once this
-component has left the page, it logs such a throw and drops it, as the form does.
+A call of yours that raises the event gets the throw, and `NotifyFieldSetChanged()`,
+`MarkServerRequest()` and a marked `ApplyServerIssues` are among them: each throws to you.
+
+With no boundary, an `OnValidationStateChanged` handler that throws once on WebAssembly brings up
+Blazor's error UI, and the form stays: only the edit whose check it interrupted shows no message.
+
+An `OnValidationStateChanged` handler that throws on every call gets past a boundary here too. As
+the boundary removes this component, the component clears its messages from your `EditContext` and
+raises that event once more to say so. A throw there takes Blazor's own unhandled-error path: a
+Server circuit ends, and WebAssembly shows its error UI beside the boundary's content and keeps
+running.
+
+This component logs a throw from your handler that reaches it after it has left the page, and
+drops it, as the form does.
 
 **The `<form>` is the page's, and so is everything `FormidableForm` renders on one:**
 
