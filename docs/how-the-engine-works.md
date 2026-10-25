@@ -1515,13 +1515,24 @@ an empty path is the model-level field: the root model with an empty member name
 The walk navigates every segment but the last across the live object graph. A property segment
 reads that member on the object reached so far.
 
-An indexer segment reads the item at that position: an `IList` directly under an int token, any
+An indexer segment reads the item its token names: an `IList` directly under an int token, any
 other case through the indexer its token fits (an int token picks the int indexer, any other the
-string one, and a type with a single indexer answers with it whatever its key type).
+string one, and a type with a single indexer answers with it whatever its key type), and an int
+token no indexer fits walks the collection to that position.
 
 On a collection that is no `IList`, an int indexer that reads by id rather than by position reaches
 the item with that id. A row object's failure is then filed on the row with that id, or on the
 collection where the indexer throws or answers null.
+
+An int token on a collection that is no `IList` and has no indexer that token picks (a `HashSet<T>`,
+a `LinkedList<T>`, a type known only by `IEnumerable<T>`) walks the collection to that position.
+FluentValidation numbers a collection's rows in the order it enumerates them, so the walk reaches
+the row a failure at that index describes. A position past the end, or a walk that throws partway,
+stops at the collection.
+
+Each resolution walks from the start, so resolving every row of such a collection costs a walk per
+row. A sequence of characters is never walked: a string is read through its own indexer, and a
+character owns no member a path could name.
 
 The terminal segment never navigates: it names the field on whatever object the walk reached.
 Nested and indexed segments mix freely: every non-terminal segment is one `Navigate` call,
@@ -1604,7 +1615,9 @@ entry.
 
 An element of a collection `IsIndexedList` rejects keeps its brackets as well: a `HashSet<T>`'s, or
 one read by id through an int indexer. Its message never reaches an input bound by index, and
-[the vouch](#the-submit-coverage-vouch) never puts green on that input.
+[the vouch](#the-submit-coverage-vouch) never puts green on that input. A member of an object row
+in a `HashSet<T>` is not such an element: [the walk](#the-walk) reaches the row, so the member's
+identifier is the row's own.
 
 A `List<KeyValuePair<TKey, TValue>>` is a list and not a dictionary, so its elements are named by
 index like any other list's, and so are those of a list of pairs known only by its generic

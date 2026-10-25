@@ -510,6 +510,114 @@ public class ReflectionModelIntrospectorTests
         Assert.Equal("[0].X", field.PropertyName);
     }
 
+    private sealed class WalkedRow
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    /// <summary>A collection known only by <see cref="IEnumerable{T}"/>: no list interface and no indexer, so its rows are reached only by walking it.</summary>
+    private sealed class EnumerableOnlyRows(IEnumerable<WalkedRow> rows) : IEnumerable<WalkedRow>
+    {
+        private readonly List<WalkedRow> _rows = [.. rows];
+
+        public IEnumerator<WalkedRow> GetEnumerator() => _rows.GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    private sealed class WalkedRows<TRows>(TRows items)
+        where TRows : IEnumerable<WalkedRow>
+    {
+        public TRows Items { get; } = items;
+    }
+
+    /// <summary>The three collections of rows with no indexer: a set, a linked list and an enumerable-only type, each holding rows a and b in that order.</summary>
+    public static TheoryData<string> CollectionsWithNoIndexer => ["HashSet", "LinkedList", "EnumerableOnly"];
+
+    private static object WalkedModel(string collection, out IEnumerable<WalkedRow> items)
+    {
+        WalkedRow[] seed = [new() { Name = "a" }, new() { Name = "b" }];
+        switch (collection)
+        {
+            case "HashSet":
+            {
+                var model = new WalkedRows<HashSet<WalkedRow>>([.. seed]);
+                items = model.Items;
+                return model;
+            }
+
+            case "LinkedList":
+            {
+                var model = new WalkedRows<LinkedList<WalkedRow>>(new(seed));
+                items = model.Items;
+                return model;
+            }
+
+            default:
+            {
+                var model = new WalkedRows<EnumerableOnlyRows>(new(seed));
+                items = model.Items;
+                return model;
+            }
+        }
+    }
+
+    // FluentValidation numbers a collection's rows in the order it enumerates them, so the row a
+    // walk reaches at an index is the row a failure there describes. Mutation that must break it:
+    // remove the walk from GetIndexedValue, and the path stops at the collection.
+    [Theory]
+    [MemberData(nameof(CollectionsWithNoIndexer))]
+    public void A_row_of_a_collection_with_no_indexer_resolves_to_the_row_its_position_names(string collection)
+    {
+        var model = WalkedModel(collection, out var items);
+
+        var field = _introspector.Resolve(model, "Items[1].Name");
+
+        Assert.Same(items.ElementAt(1), field.Owner);
+        Assert.Equal(nameof(WalkedRow.Name), field.PropertyName);
+    }
+
+    // A position past the end names no row, so the path stops at the collection, as an index past
+    // a list's end does.
+    [Theory]
+    [MemberData(nameof(CollectionsWithNoIndexer))]
+    public void A_position_past_the_end_of_a_collection_with_no_indexer_falls_back(string collection)
+    {
+        var model = WalkedModel(collection, out var items);
+
+        var field = _introspector.Resolve(model, "Items[2].Name");
+
+        Assert.Same(items, field.Owner);
+        Assert.Equal("[2].Name", field.PropertyName);
+    }
+
+    /// <summary>A sequence of characters with no indexer, so nothing but the walk's own guard keeps the walk out of it.</summary>
+    private sealed class CharacterSequence : IEnumerable<char>
+    {
+        public IEnumerator<char> GetEnumerator() => "abc".GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    private sealed class CharacterHolder
+    {
+        public CharacterSequence Chars { get; } = new();
+    }
+
+    // A character owns no member a path could name, so the path stops at the sequence. Mutation
+    // that must break it: drop the IEnumerable<char> test from ElementAtPosition, and the path
+    // reaches the boxed 'b' with "X" as its member.
+    [Fact]
+    public void A_sequence_of_characters_with_no_indexer_is_never_walked()
+    {
+        var holder = new CharacterHolder();
+
+        var field = _introspector.Resolve(holder, "Chars[1].X");
+
+        Assert.Same(holder.Chars, field.Owner);
+        Assert.Equal("[1].X", field.PropertyName);
+    }
+
     [Fact]
     public void A_path_longer_than_the_cache_length_cap_resolves_but_is_never_remembered()
     {

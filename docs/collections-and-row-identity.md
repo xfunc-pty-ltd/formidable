@@ -14,10 +14,13 @@ Key an error against that path string and the mistake above stops being hypothet
 for the row that's gone shows up on the row that inherited its position, a field the user already
 fixed looks broken again after a reorder, and the form ends up complaining about the wrong line.
 
-Formidable never keys by path. For a row that is an object, it resolves every failure down to the
-actual object sitting at that position and keys the error to the instance itself, so add, remove,
-and reorder can never separate an error from that row. A row with no members of its own (a string in a list of tags,
-a number in an array) has no object to key an error to, so it is identified by its index, as
+Formidable never keys by path. For an object row of a collection read by position, or of one with
+no indexer such as a `HashSet<T>`, it resolves every failure down to the actual object sitting at
+that position and keys the error to the instance itself. Add, remove, and reorder can never separate
+an error from that row.
+
+A row with no members of its own (a string in a list of tags, a number in an array) has no object
+to key an error to, so it is identified by its index, as
 [a list of strings or numbers](#how-do-i-bind-a-list-of-strings-or-numbers) shows.
 
 Here is one row of a list, from the moment the page adds it to the moment its messages leave with
@@ -280,6 +283,12 @@ list](#what-does-key-actually-buy) does, so they need no cast. The form finds ea
 position through the non-generic `IList`, which an array, a `List<T>` and a `Collection<T>` all
 implement. A collection without that interface but with an int indexer has each row read through
 that indexer instead.
+
+A collection with no indexer at all (a `HashSet<T>`, a `LinkedList<T>`, a type known only by
+`IEnumerable<T>`) has each row found by its position in the order the collection enumerates, which
+is the order the validator numbers its rows in. A set changed while a check runs can therefore put
+that check's failure on the wrong row. The validator numbered the rows as the set held them while
+the check ran, and an add or a remove since then can move them.
 
 Take a collection whose int indexer reads by id and that lacks the non-generic `IList`. An object
 row's message and required mark there land on the row whose id equals that row's position, or on no

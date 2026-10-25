@@ -73,7 +73,7 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
     private int _cachedPathCount;
     private int _cachedPropertyCount;
 
-    /// <summary>Resolves <paramref name="propertyPath"/> against <paramref name="rootModel"/> by walking public instance properties and indexers, falling back as the class remarks describe.</summary>
+    /// <summary>Resolves <paramref name="propertyPath"/> against <paramref name="rootModel"/> by walking public instance properties and indexers, falling back as the class remarks describe; on a collection that is no <see cref="IList"/> and has no indexer, a numeric index walks to its row in enumeration order.</summary>
     /// <param name="rootModel">The model the path starts from.</param>
     /// <param name="propertyPath">A FluentValidation property path; empty for the model-level field.</param>
     /// <returns>The deepest non-null owner reached and the member name on it.</returns>
@@ -289,10 +289,10 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
             }
         }
 
-        return TryIndexerProperty(collection, indexToken, isNumeric);
+        return TryIndexerProperty(collection, indexToken, isNumeric, index);
     }
 
-    private object? TryIndexerProperty(object collection, string indexToken, bool isNumeric)
+    private object? TryIndexerProperty(object collection, string indexToken, bool isNumeric, int index)
     {
         try
         {
@@ -300,7 +300,7 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
 
             if (indexer is null)
             {
-                return null;
+                return isNumeric ? ElementAtPosition(collection, index) : null;
             }
 
             var parameterType = indexer.GetIndexParameters()[0].ParameterType;
@@ -309,9 +309,38 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         }
         catch
         {
-            // Missing key, wrong key type, or index conversion failure — fall back.
+            // Missing key, wrong key type, index conversion failure, or a collection that throws
+            // partway through the walk to a position: fall back.
             return null;
         }
+    }
+
+    /// <summary>Walks <paramref name="collection"/> to the row at <paramref name="index"/> in the order it enumerates, for a collection read by neither a list's index nor an indexer.</summary>
+    /// <param name="collection">The collection a numeric token addresses.</param>
+    /// <param name="index">The row's position.</param>
+    /// <returns>The row at that position; <see langword="null"/> past the end, for a negative position, for a value that is not a collection, or for a sequence of characters.</returns>
+    // FluentValidation numbers a collection's rows in the order it enumerates them, so the row
+    // this walk reaches is the row a failure at that index describes, in a HashSet<T>, a
+    // LinkedList<T> or a type known only by IEnumerable<T>. Each resolution walks from the start.
+    // A sequence of characters is never walked: a string is read through its own indexer before
+    // this runs, and a character is never the owner of a member a path names.
+    private static object? ElementAtPosition(object collection, int index)
+    {
+        if (index < 0 || collection is not IEnumerable rows || collection is IEnumerable<char>)
+        {
+            return null;
+        }
+
+        var position = 0;
+        foreach (var row in rows)
+        {
+            if (position++ == index)
+            {
+                return row;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Looks up the indexer the token's kind asks for through the property cache, under a key no member name can collide with and counted against <see cref="MaxCachedProperties"/> as any member is.</summary>
