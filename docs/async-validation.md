@@ -302,9 +302,16 @@ and neither lights the other.
 
 The whole-form re-check shows "checking" on a field whose change is still waiting out `LiveDebounce`
 (the wait the form can put between an edit and its check). After a submit, it also shows it on each
-field you edited since. Pressing Submit shows it form-wide, because every field is being checked at
-once. Loading values shows it on fewer fields, and can keep it off a field you changed: the
-paragraphs on loading below say when.
+field you edited since.
+
+Pressing Submit shows "checking" on each field whose submit rules the library can read, as the form
+stands when you press, because all of those are being checked at once. A field whose only rules the
+library cannot read ahead of a run (such as one inside `DependentRules`, or in a child validator
+built from the model) shows none. Where your validator cannot report its rules to the library, a
+submit shows it on every field.
+
+Loading values shows "checking" on fewer fields than a submit, and can keep it off a field you
+changed: the paragraphs on loading below say when.
 
 Two flags answer "is something still checking?".
 [`IFormidableEngine.IsValidating`](engine-reference.md#iformidableengine) is true while any check

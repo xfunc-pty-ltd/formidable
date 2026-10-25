@@ -15,7 +15,8 @@ namespace Formidable.Blazor.Tests;
 /// component for component, with a fixed window of ten session rows where Virtualize would be).
 /// One committed edit, before or after a submit, re-renders the edited field's components and
 /// nothing else (under a row-key check, the wrappers' contents too); a blocked submit re-renders
-/// every field for its two pending flips and the form's own renders. bUnit's RenderCount on a
+/// every field for the form's own renders, and each field the submit profile declares a rule for
+/// twice more for its pending flips. bUnit's RenderCount on a
 /// component that has children counts their updates too (its UpdateParents walk), so every
 /// assertion here reads leaf components: inputs, messages, the summary and the consumer children,
 /// never a wrapper, the form or the host.
@@ -79,17 +80,22 @@ public class WorkoutShapedRenderCeilingTests : BunitContext
         await Services.DisposeAsync();
     }
 
-    // A submit's validating scope covers every field, so the pending class turns on and off for
-    // each of them: two real view moves per field. The form renders at the submit's start, after
-    // the check and at its end, and each of those re-sets the components under its fragment. The
-    // filter changes nothing here and nothing should.
+    // A submit's "checking" covers the fields the submit profile declares a rule for, so the
+    // pending class turns on and off for each of those (two real view moves per field) and for no
+    // other. The form renders at the submit's start, after the check and at its end, and each of
+    // those re-sets the components under its fragment. Description and Coupon code have no rule,
+    // and the catering checkbox's wrapper draws a field with none, so their leaves render for the
+    // form's renders alone. That is 222 leaf renders: 96 inputs (18 at five, 2 at three), 101
+    // messages (19 at five, 2 at three), 18 wrapper children (3 at five, 1 at three), the
+    // collection message's 5 and the summary's 2. A scope covering every field rendered 232.
     [Fact]
-    public async Task A_blocked_submit_renders_every_field_for_its_pending_flips_and_the_forms_own_renders()
+    public async Task A_blocked_submit_renders_the_declared_fields_for_their_pending_flips_and_every_field_for_the_forms_own_renders()
     {
         var cut = await RenderWorkoutShapedFormAsync();
         var form = cut.FindComponent<FormidableForm<Registration>>().Instance;
         var formRenders = cut.FindComponent<FormRenderCounter>();
         var summary = cut.FindComponent<FormidableSummary>();
+        var collectionMessage = cut.FindComponent<FormidableCollectionMessage<List<Attendee>>>();
         var before = RenderCounts(cut);
 
         await cut.InvokeAsync(() => form.SubmitAsync());
@@ -98,15 +104,35 @@ public class WorkoutShapedRenderCeilingTests : BunitContext
 
         var ownRenders = formRenders.RenderCount - before[formRenders.ComponentId];
         Assert.True(ownRenders > 0, "the form did not render at the submit");
+
+        // The rendered ids end in the sanitised field name, as in the edit ceilings above.
+        static bool HasNoRule(string markup) => markup.Contains("-description") || markup.Contains("-couponcode");
+
+        var total = 0;
         foreach (var component in cut.FindComponents<FormidableInputText>())
         {
-            Assert.Equal(ownRenders + 2, component.RenderCount - before[component.ComponentId]);
+            var delta = component.RenderCount - before[component.ComponentId];
+            Assert.Equal(HasNoRule(component.Markup) ? ownRenders : ownRenders + 2, delta);
+            total += delta;
         }
         foreach (var component in cut.FindComponents<FormidableFieldMessage<string>>())
         {
-            Assert.Equal(ownRenders + 2, component.RenderCount - before[component.ComponentId]);
+            var delta = component.RenderCount - before[component.ComponentId];
+            Assert.Equal(HasNoRule(component.Markup) ? ownRenders : ownRenders + 2, delta);
+            total += delta;
         }
-        Assert.Equal(2, summary.RenderCount - before[summary.ComponentId]);
+        foreach (var component in cut.FindComponents<WrapperChild>())
+        {
+            var delta = component.RenderCount - before[component.ComponentId];
+            var noRule = component.Instance.Field!.Field.FieldName == nameof(Registration.IncludeCatering);
+            Assert.Equal(noRule ? ownRenders : ownRenders + 2, delta);
+            total += delta;
+        }
+        var collectionDelta = collectionMessage.RenderCount - before[collectionMessage.ComponentId];
+        var summaryDelta = summary.RenderCount - before[summary.ComponentId];
+        Assert.Equal(ownRenders + 2, collectionDelta);
+        Assert.Equal(2, summaryDelta);
+        Assert.Equal(222, total + collectionDelta + summaryDelta);
 
         await Services.DisposeAsync();
     }

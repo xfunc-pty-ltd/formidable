@@ -129,10 +129,18 @@ channel's source. The server store is left standing: a live pass is an edit's ow
 settling point a server snapshot yields to.
 
 **Submit.** Started by `ValidateForSubmitAsync` (a root's `SubmitAsync` reaches it). It runs the
-submit profile form-wide, pending indicator form-wide. On landing it sets `HasSubmitted`, clears
-every live verdict (the engaged set stands, so the next live pass re-answers it), unions or resets
-the reveal ledgers, and arms or disarms the gate. A submit reads no stored verdict: it executes its
-whole selection by fiat.
+submit profile form-wide. On landing it sets `HasSubmitted`, clears every live verdict (the engaged
+set stands, so the next live pass re-answers it), unions or resets the reveal ledgers, and arms or
+disarms the gate. A submit reads no stored verdict: it executes its whole selection by fiat.
+
+Its pending scope is the fields the submit profile declares (`GetDeclaredFieldPaths`), resolved as
+the required indicator's map resolves them. Each collection template expands to the rows the model
+holds as the submit begins, and a submit that checks again keeps that scope. A validator that cannot
+be inspected (no `IRuleInspectingValidator<TModel>`, or `CanInspectRules` false), or whose selection
+throws, leaves the scope null, which lights every field.
+
+No declared path names the model-level field, so under an inspecting validator it is not pending
+during a submit. The form-wide signal is `IsValidating`.
 
 A submit clears the server store too when it began after the last apply
 ([what replaces the server's answer](#what-replaces-the-servers-answer)).

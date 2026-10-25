@@ -99,7 +99,7 @@ public class FormidableEngineValidatingScopeTests
     }
 
     [Fact]
-    public async Task Submit_pass_marks_every_field_validating()
+    public async Task Submit_pass_marks_the_fields_its_profile_declares_validating()
     {
         var order = new EngineOrder();
         var validator = new GatedValidator();
@@ -115,8 +115,9 @@ public class FormidableEngineValidatingScopeTests
 
         var pending = engine.ValidateForSubmitAsync();
 
-        Assert.True(engine.GetFieldState(fieldA).IsValidating); // submit pass is form-wide
-        Assert.True(engine.GetFieldState(fieldB).IsValidating); // ...even for a field the pass never touches
+        Assert.True(engine.GetFieldState(fieldA).IsValidating);  // the submit profile declares a rule for it
+        Assert.False(engine.GetFieldState(fieldB).IsValidating); // no rule in the submit profile: nothing checks it
+        Assert.True(engine.IsValidating);                        // engine-level flag stays form-wide
 
         validator.Gate.SetResult();
         await pending;
@@ -126,13 +127,14 @@ public class FormidableEngineValidatingScopeTests
     }
 
     [Fact]
-    public async Task Submit_flags_all_fields_while_in_flight()
+    public async Task Submit_keeps_its_declared_scope_while_a_field_is_edited_in_flight()
     {
-        // Distinct from Submit_pass_marks_every_field_validating above: here field A is edited
-        // WHILE the submit is in flight (the edit's own live pass defers to the higher-intent
-        // submit and no-ops), which is also the exact condition that now accumulates a field into
-        // the refresh scope. Submit's own IsValidating must stay form-wide regardless - the new
-        // accumulator must not leak into or narrow the submit pass's scope.
+        // Distinct from Submit_pass_marks_the_fields_its_profile_declares_validating above: here
+        // field B, which no submit rule names, is edited WHILE the submit is in flight (the edit's
+        // own live pass defers to the higher-intent submit and no-ops), which is also the exact
+        // condition that accumulates a field into the refresh scope. The submit's own scope must
+        // hold regardless: the accumulator must neither narrow it (A stays flagged) nor widen it
+        // to the edited field it declares no rule for (B stays down).
         var order = new EngineOrder();
         var validator = new GatedValidator();
         var editContext = new EditContext(order);
@@ -147,10 +149,10 @@ public class FormidableEngineValidatingScopeTests
         var fieldB = new FieldIdentifier(order, nameof(EngineOrder.Customer));
 
         var pending = engine.ValidateForSubmitAsync();
-        editContext.NotifyFieldChanged(fieldA); // edited mid-submit
+        editContext.NotifyFieldChanged(fieldB); // edited mid-submit
 
-        Assert.True(engine.GetFieldState(fieldA).IsValidating); // edited field: still flagged, form-wide
-        Assert.True(engine.GetFieldState(fieldB).IsValidating); // untouched field: also flagged, form-wide
+        Assert.True(engine.GetFieldState(fieldA).IsValidating);  // untouched field the profile declares: still flagged
+        Assert.False(engine.GetFieldState(fieldB).IsValidating); // edited field with no submit rule: not flagged
 
         validator.Gate.SetResult();
         await pending;
@@ -538,10 +540,11 @@ public class FormidableEngineValidatingScopeTests
     // for the whole model, and IsValidating says so, which is what a page-level spinner reads -
     // but no field is waiting on it, so the field-scoped flag stays down everywhere, including
     // on a field no rule mentions at all. The submit at the end is the positive control: the
-    // same field, the same gated validator, form-wide because the visitor asked. Mutation this
+    // same field, the same gated validator, lit because the visitor asked and its profile
+    // declares a rule for it, while the field no rule mentions stays down. Mutation this
     // breaks: hand the load pass a null scope, which IsFieldValidating reads as "every field".
     [Fact]
-    public async Task A_load_pass_marks_no_field_validating_while_a_submit_marks_them_all()
+    public async Task A_load_pass_marks_no_field_validating_while_a_submit_marks_its_declared_fields()
     {
         var order = new EngineOrder();
         var validator = new GatedValidator();
@@ -572,7 +575,7 @@ public class FormidableEngineValidatingScopeTests
 
         Assert.True(engine.IsValidating);
         Assert.True(engine.GetFieldState(described).IsValidating);
-        Assert.True(engine.GetFieldState(unruled).IsValidating);
+        Assert.False(engine.GetFieldState(unruled).IsValidating);
 
         validator.Gate.SetResult();
         await submit;

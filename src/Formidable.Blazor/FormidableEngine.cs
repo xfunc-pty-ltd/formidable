@@ -738,11 +738,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     // scroll bursts. Row churn keeps the entries current by the same signal
                     // that drops them: a row's fields registering or unregistering is exactly
                     // such a move.
-                    expanded.Clear();
-                    ExpandTemplate(path, expanded, walked: null);
-                    foreach (var rowPath in expanded)
+                    foreach (var field in FieldsNamedBy(path, expanded))
                     {
-                        map[ResolvePath(rowPath)] = requirement;
+                        map[field] = requirement;
                     }
                 }
             }
@@ -754,6 +752,63 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         _requirementsProfile = profile;
         return _requirements = map;
+    }
+
+    /// <summary>The fields a submit's checking indicator covers: those <paramref name="profile"/> declares a rule for, resolved as <see cref="Requirements"/> resolves them, with each collection template expanded to the rows the model holds as the submit begins.</summary>
+    /// <param name="profile">The submit profile.</param>
+    /// <returns>The declared fields; <see langword="null"/>, which covers every field, when the validator cannot report its rules or its selection throws.</returns>
+    // The submit answers for the whole model, but a field with no rule in the profile has nothing
+    // being checked, so it shows no "checking". The fields come from the seam the required
+    // indicator reads and resolve through the introspector an issue lands through, so each field
+    // that lights is one a declared rule's failure would land on. Not every field a failure can
+    // land on lights. The seam declares no path for a rule inside DependentRules or in a child
+    // validator a lambda cannot build without a model, none for the field a rule's code adds its
+    // failure under when that is not the field the rule names (a model-level Custom, say). A
+    // DelegatingModelValidator subclass that runs a check of its own declares only the wrapped
+    // validator's paths unless it overrides GetDeclaredFieldPaths. A field only those check shows
+    // no "checking" while they run, though the submit still waits for them. A validator that
+    // cannot say which fields it checks keeps every field lit, as does a selection that throws,
+    // which the pass then reports through its fault policy. The set is read once, as the submit
+    // begins. A submit that checks again after an edit keeps it, so a row added while the submit
+    // runs shows no "checking" of its own.
+    private HashSet<FieldIdentifier>? SubmitPendingScope(ValidationProfile profile)
+    {
+        if (_validator is not IRuleInspectingValidator<TModel> { CanInspectRules: true } inspector)
+        {
+            return null;
+        }
+
+        try
+        {
+            var scope = new HashSet<FieldIdentifier>();
+            var expanded = new List<string>();
+            foreach (var path in inspector.GetDeclaredFieldPaths(profile))
+            {
+                scope.UnionWith(FieldsNamedBy(path, expanded));
+            }
+
+            return scope;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The fields <paramref name="declaredPath"/> names on the model as it stands: one for a scalar path, one per row for a collection template (<c>Lines[].Sku</c>), and none for an empty collection.</summary>
+    /// <param name="declaredPath">A path the validator declares.</param>
+    /// <param name="expanded">A scratch list the expansion fills, cleared as enumeration starts.</param>
+    /// <returns>Each field, resolved through <see cref="ResolvePath"/>.</returns>
+    // The one route from a declared path to fields, shared by the required indicator's map and a
+    // submit's checking indicator, so the two cannot disagree about which field a rule names.
+    private IEnumerable<FieldIdentifier> FieldsNamedBy(string declaredPath, List<string> expanded)
+    {
+        expanded.Clear();
+        ExpandTemplate(declaredPath, expanded, walked: null);
+        foreach (var path in expanded)
+        {
+            yield return ResolvePath(path);
+        }
     }
 
     /// <summary>Asks the coverage tracker whether <paramref name="field"/> would pass submit, with the edit stamp, the submit profile and the rule selection read at this ask.</summary>
@@ -887,7 +942,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Whether the pass in flight covers <paramref name="field"/>, which the pass's kind decides through its pending scope.</summary>
     /// <param name="field">The field.</param>
-    /// <returns><see langword="true"/> for any field under a submit; for a triggering field under a live pass; for a field edited within the window or still held by a debounce window under a refresh; under either of those two, for a field whose cancelled check the pass answers in its place; and never under a load.</returns>
+    /// <returns><see langword="true"/> under a submit for a field its profile declares a rule for, or for any field when the validator cannot report its rules; for a triggering field under a live pass; for a field edited within the window or still held by a debounce window under a refresh; under either of those two, for a field whose cancelled check the pass answers in its place; and never under a load.</returns>
     // GetFieldState folds this into its own read; IValidatingFieldReader exposes it alone for the
     // css class provider, which wants only this without the cost of a whole FieldState.
     private bool IsFieldValidating(FieldIdentifier field) =>
@@ -2136,7 +2191,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Publishes that <paramref name="pass"/> began: sets <see cref="IsValidating"/> and narrows the checking indicator to <paramref name="fields"/>.</summary>
     /// <param name="pass">The pass, which must still be current for the write to land.</param>
-    /// <param name="fields">The pending scope: a live pass's triggering fields, a refresh's fields edited within its window and those a debounce window still holds, each with the fields of a cancelled check the pass answers in its place; an empty set for a load; and <see langword="null"/> for a submit, which covers every field.</param>
+    /// <param name="fields">The pending scope: a live pass's triggering fields, a refresh's fields edited within its window and those a debounce window still holds, each with the fields of a cancelled check the pass answers in its place; an empty set for a load; and for a submit the fields its profile declares, or <see langword="null"/>, which covers every field, when the validator cannot report its rules.</param>
     private Task BeginValidatingAsync(PassScope pass, HashSet<FieldIdentifier>? fields) =>
         PublishPassStateAsync(pass, () =>
         {
@@ -3657,7 +3712,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         keys.UnionWith(_submitVerdictAdvisories.Keys);
         keys.UnionWith(_serverErrors.Keys);
         keys.UnionWith(_serverAdvisories.Keys);
-        if (_validatingScope is not null)
+
+        // A submit's scope stays out: it lists every field the submit profile declares, rows the
+        // page never rendered included. A field nothing else holds has its pending state move
+        // with FormChanged, as FormidableStateChangedEventArgs tells a handler.
+        if (_validatingScope is not null && _currentPass?.Kind != PassKind.Submit)
         {
             keys.UnionWith(_validatingScope);
         }
@@ -3761,12 +3820,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         var summary = new List<string>();
         Exception? fault = null;
         var faultFiled = false;
+        var profile = _options.SubmitProfile;
 
         var passReport = await RunPassAsync(
             PassKind.Submit,
-            _options.SubmitProfile,
+            profile,
             cancellationToken,
-            static () => null, // a submit's pending indicator is form-wide: no scope narrows it
+            () => SubmitPendingScope(profile),
             (report, beganAtEditStamp) =>
             {
                 HasSubmitted = true;

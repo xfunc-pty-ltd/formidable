@@ -8,7 +8,8 @@ namespace Formidable.Blazor;
 /// a publish whose <see cref="Includes"/> answers <see langword="false"/> for it; one that renders
 /// form-wide state reads <see cref="FormChanged"/> too. A field the engine holds nothing for
 /// (whether it never did or has since let it go) is named once the engine holds something for
-/// it; while a submit checks, its pending state moves with <see cref="FormChanged"/>.
+/// it. While a submit that covers such a field checks, the field's pending state moves with
+/// <see cref="FormChanged"/>.
 /// </remarks>
 // The class exists so the event's delegate shape never has to change: anything the event learns
 // to say about what changed is added here as init-only properties a handler written before the

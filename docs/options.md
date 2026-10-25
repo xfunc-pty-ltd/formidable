@@ -754,7 +754,7 @@ do, when the delegate runs, and where exceptions go.
 | `Warning` | touched or modified, no errors, and has a warning-severity issue | `formidable-warning` |
 | `Info` | touched or modified, no errors or warnings, and has an info-severity issue | `formidable-info` |
 | `Valid` | the field is touched or modified, has no issues at all, and the engine can say a submit would not fail it | `formidable-valid` |
-| `Pending` | the field's own latest check is still running | `formidable-pending` |
+| `Pending` | a check covering the field is still running ([which checks cover which fields](async-validation.md#where-does-checking-show-and-where-doesnt-it)) | `formidable-pending` |
 
 Set it for the whole app with
 `builder.Services.AddFormidableBlazor(options => options.CssClasses = new FormidableCssClasses { Invalid = "is-invalid", Valid = "is-valid" });`.

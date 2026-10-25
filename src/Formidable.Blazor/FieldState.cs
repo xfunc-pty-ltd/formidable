@@ -19,7 +19,7 @@ public readonly record struct FieldState
     /// <summary>Whether the <c>EditContext</c> reports the field as modified.</summary>
     public bool IsModified { get; init; }
 
-    /// <summary>Whether a check covering the field is running: a submit, the field's own live check, a whole-form re-check that includes it, or a check answering in place of a cancelled check of it.</summary>
+    /// <summary>Whether a check covering the field is running: a submit whose readable rules named it as it began (any submit, when none can be read), or a live check or re-check including it, even one taking over its cancelled check.</summary>
     /// <remarks>
     /// A re-check includes a field whose debounced check is still to come, and the fields edited
     /// since the last re-check, during a submit or after a submit or server reply answered. After
