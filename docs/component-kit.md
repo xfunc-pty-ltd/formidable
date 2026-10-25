@@ -1303,6 +1303,12 @@ to `Edit` or `TryEdit` does not build: the compiler reports `CS0121`, a call amb
 `Task` and `ValueTask` forms. Declaring the return type, as in `Edit(async Task () => ...)`, builds
 at `LangVersion` 10 to 12 as well.
 
+A lambda that only throws also makes the call ambiguous between the `Task` and `ValueTask` forms of
+`Edit` at `LangVersion` 12 or below, although it is not `async`.
+`Edit(() => throw new InvalidOperationException())` reports `CS0121` at those versions, and so does
+the same lambda written with braces. Declaring the return type, as in
+`Edit(Task () => throw new InvalidOperationException())`, builds at `LangVersion` 10 to 12 too.
+
 Any other list edit, such as a reorder, goes through `Edit` or `TryEdit`, or calls `NotifyChanged()`
 after it.
 
