@@ -18,8 +18,7 @@ public class RootDisposalTests : BunitContext
 {
     public RootDisposalTests()
     {
-        // A fake clock keeps the first render's whole-form re-check from firing on a pool
-        // thread. While such a fire holds the dispatcher, DisposeComponentsAsync disposes nothing.
+        // A fake clock keeps the first render's whole-form re-check off the system clock.
         Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
         Services.AddFormidableBlazor();
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();

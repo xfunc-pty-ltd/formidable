@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
@@ -24,6 +25,8 @@ public class FormidableFieldContextEditTests : BunitContext
 
     public FormidableFieldContextEditTests()
     {
+        // A fake clock keeps the first render's whole-form re-check off the system clock.
+        Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
         Services.AddFormidable();
         Services.AddSingleton<FluentValidation.IValidator<RowListModel>, RowListValidator>();
     }
