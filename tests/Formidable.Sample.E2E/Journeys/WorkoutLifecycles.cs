@@ -13,7 +13,8 @@ namespace Formidable.Sample.E2E;
 /// blocked, and — the one these exist to protect — a live verdict surviving the refresh its
 /// own edit armed. The live channel also answers here with no submit at all: a cross-field error
 /// cleared from the other field of its pair, and a tab-through of a blur-mode field that
-/// discloses nothing because nothing was committed.
+/// discloses nothing because nothing was committed. A saved draft outlives a reload, and loading
+/// it back speaks for the values it holds and stays quiet about the boxes it left empty.
 /// </summary>
 [Collection("e2e")]
 public sealed class WorkoutLifecycles(SampleAppFixture app)
@@ -31,6 +32,22 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     private const string Accepted = "Submitted — registration accepted.";
     private const string Rejected = "The server rejected the registration — see the messages above.";
 
+    // The page's own status lines for a draft save and a draft load, and the one storage entry the
+    // save writes, read and removed by name the way a visitor looking at the site's data would.
+    // The blocked save is the empty form's: Dietary notes is the one box a draft requires.
+    private const string DraftBlocked = "Draft blocked: Dietary notes are required";
+    private const string DraftSaved = "Draft saved — no blocking issues.";
+    private const string DraftLoaded = "Loaded the saved draft.";
+    private const string NoSavedDraft = "No saved draft yet.";
+    private const string ReadSavedDraft = "localStorage.getItem('formidable.workout-draft')";
+    private const string ForgetSavedDraft = "localStorage.removeItem('formidable.workout-draft')";
+    private const string EmailTaken = "That email is already registered";
+    private const string VenueRegionRequired = "Venue region is required";
+
+    // The first session row's label, which is also its seats box's accessible name. The top of the
+    // list is rendered from the start, so this row needs no scrolling to reach.
+    private const string FirstSessionLabel = "Session 001: Workshop";
+
     // The row the race test edits: the last of 150, far past anything Virtualize has rendered, so
     // the test has to scroll it into existence first. Its title is what addresses it — the one
     // thing about a collection row that is the row's own.
@@ -45,6 +62,13 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     // that must read a pass's landing rather than the DOM as it stood before the pass waits
     // this class out on a field the pass covers.
     private static readonly Regex Pending = StateClass("pending");
+
+    // The confirmed border: a value that would pass a submit.
+    private static readonly Regex Valid = StateClass("valid");
+
+    // The id of the native venue box's message list, which the page names in aria-describedby
+    // while a message shows.
+    private static readonly Regex VenueRegionMessagesId = new("-venueregion-messages$");
 
     // ItemSize is pinned to match the real row height, but scrollHeight can still shift by a
     // pixel or two as placeholder spacers are replaced by rendered rows before layout settles.
@@ -491,6 +515,131 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
             .ToHaveTextAsync([SeatsOutOfRange], new() { Timeout = AsyncTimeoutMs });
     }
 
+    [E2EFact]
+    public async Task A_saved_draft_survives_a_reload_and_loads_green()
+    {
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
+        var status = page.Locator("p[role='status']");
+        var dietaryNotes = TextBox(page, "Dietary notes");
+        var eventName = TextBox(page, "Event name");
+        var contactEmail = TextBox(page, "Contact email");
+        var description = TextBox(page, "Description");
+        var firstSessionSeats = TextBox(page, FirstSessionLabel);
+        var attendeeName = TextBox(page, "Name");
+        var venueRegion = TextBox(page, "Venue region (native InputText)");
+        var venueMessage = page.Locator(".validation-message");
+        var ticketTier = page.GetByRole(AriaRole.Combobox, new() { Name = "Ticket tier (foreign select)", Exact = true });
+        var eventDate = page.GetByLabel("Event date");
+
+        // A fresh context holds no draft already; removing it by name says so rather than leaning
+        // on how the fixture builds its contexts.
+        await page.EvaluateAsync(ForgetSavedDraft);
+
+        // A blocked save writes nothing. The status line is written once the save has decided, so
+        // the storage read after it reads the decision's outcome.
+        await SaveDraftAsync(page);
+        await Expect(status).ToHaveTextAsync(DraftBlocked, new() { Timeout = AsyncTimeoutMs });
+        Assert.Null(await page.EvaluateAsync<string?>(ReadSavedDraft));
+
+        // Dietary notes is the one box a draft save requires, so with it filled the save goes
+        // through. Description has no rule at all. A session's seats and an attendee row ride
+        // along, the two lists a load writes back. Every other box stays empty, for the load to
+        // keep quiet about.
+        await dietaryNotes.FillAsync("No nuts");
+        await eventName.FillAsync("Dev Summit");
+        await contactEmail.FillAsync("ada@example.com");
+        await description.FillAsync("Hands-on day");
+        await firstSessionSeats.FillAsync("3");
+        await AddAttendeeAsync(page);
+        await attendeeName.FillAsync("Ada Lovelace");
+        await SaveDraftAsync(page);
+        await Expect(status).ToHaveTextAsync(DraftSaved, new() { Timeout = AsyncTimeoutMs });
+
+        // The reload boots the app afresh, so the form opens as a first visit does: nothing typed
+        // comes back by itself, and nothing wears a border. The first read waits out the boot.
+        await page.ReloadAsync();
+        await Expect(dietaryNotes).ToHaveValueAsync(string.Empty, new() { Timeout = AsyncTimeoutMs });
+        await Expect(eventName).ToHaveValueAsync(string.Empty);
+        await Expect(contactEmail).ToHaveValueAsync(string.Empty);
+        await Expect(contactEmail).Not.ToHaveClassAsync(AnyStateClass);
+        await Expect(firstSessionSeats).ToHaveValueAsync("0");
+        await Expect(page.Locator(".member-list li")).ToHaveCountAsync(0);
+
+        // Something on screen for the load to replace: an address the availability check rejects,
+        // then a blocked submit that shows every required box's message.
+        await contactEmail.FillAsync("taken@example.com");
+        await Expect(MessagesFor(page, "contactemail"))
+            .ToHaveTextAsync([EmailTaken], new() { Timeout = AsyncTimeoutMs });
+        await SubmitAsync(page);
+        await Expect(SummaryEntry(page, VenueRegionRequired)).ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
+        await Expect(venueMessage).ToHaveTextAsync(VenueRegionRequired);
+
+        // The status line is written once the load has answered, so every read after it reads the
+        // loaded form rather than the one before the click.
+        await LoadSavedDraftAsync(page);
+        await Expect(status).ToHaveTextAsync(DraftLoaded, new() { Timeout = AsyncTimeoutMs });
+
+        // The load builds the form's contents afresh, buttons included, and focus goes back to
+        // the button that was pressed rather than falling to the page.
+        await Expect(page.GetByRole(AriaRole.Button, new() { Name = "Load saved draft", Exact = true }))
+            .ToBeFocusedAsync(new() { Timeout = AsyncTimeoutMs });
+
+        await Expect(dietaryNotes).ToHaveValueAsync("No nuts");
+        await Expect(eventName).ToHaveValueAsync("Dev Summit");
+        await Expect(contactEmail).ToHaveValueAsync("ada@example.com");
+        await Expect(description).ToHaveValueAsync("Hands-on day");
+        await Expect(firstSessionSeats).ToHaveValueAsync("3");
+        await Expect(attendeeName).ToHaveValueAsync("Ada Lovelace");
+
+        // Every box that has a rule and holds a good value turns green with no keystroke, Ticket
+        // tier's opening choice included: it is a saved value like any other. Description holds a
+        // value under no rule, so the load leaves it bare.
+        foreach (var box in new[] { dietaryNotes, eventName, contactEmail, firstSessionSeats, attendeeName, ticketTier })
+        {
+            await Expect(box).ToHaveClassAsync(Valid);
+        }
+
+        await Expect(description).Not.ToHaveClassAsync(AnyStateClass);
+
+        // Nothing from before the load survives it: not the rejected address's message, and none
+        // of what the blocked submit showed, under the boxes or in the error summary. Event date
+        // is required to submit and the draft left it empty, so a load that kept the submit's
+        // answer, or answered the way a submit does, would leave its message up. Coupon code has
+        // nothing to say either way.
+        await Expect(MessagesFor(page, "contactemail")).ToHaveCountAsync(0);
+        await Expect(venueMessage).ToHaveCountAsync(0);
+        await Expect(SummaryBands(page)).ToHaveCountAsync(0);
+        await Expect(MessagesFor(page, "eventdate")).ToHaveCountAsync(0);
+        await Expect(eventDate).Not.ToHaveClassAsync(AnyStateClass);
+        await Expect(MessagesFor(page, "couponcode")).ToHaveCountAsync(0);
+
+        // The form goes on answering edits after the load, and so do the attributes the page
+        // writes on the native venue box itself: a message there is named by aria-describedby.
+        await venueRegion.FillAsync("Adelaide");
+        await TabAsync(page);
+        await venueRegion.FillAsync(string.Empty);
+        await TabAsync(page);
+        await Expect(venueMessage).ToHaveTextAsync(VenueRegionRequired, new() { Timeout = AsyncTimeoutMs });
+        await Expect(venueRegion).ToHaveAttributeAsync("aria-describedby", VenueRegionMessagesId);
+
+        // A changed box with no rule turns green: the load left Description bare, and an edit to
+        // it is a change like any other.
+        await description.FillAsync("Hands-on day for everyone");
+        await TabAsync(page);
+        await Expect(description).ToHaveClassAsync(Valid, new() { Timeout = AsyncTimeoutMs });
+
+        // With nothing saved, the status line says so and the form stays as it opened: no box
+        // filled and none turned green, Ticket tier's opening choice included.
+        await page.EvaluateAsync(ForgetSavedDraft);
+        await page.ReloadAsync();
+        await LoadSavedDraftAsync(page);
+        await Expect(status).ToHaveTextAsync(NoSavedDraft, new() { Timeout = AsyncTimeoutMs });
+        await Expect(eventName).ToHaveValueAsync(string.Empty);
+        await Expect(eventName).Not.ToHaveClassAsync(AnyStateClass);
+        await Expect(ticketTier).Not.ToHaveClassAsync(AnyStateClass);
+    }
+
     // Everything the Submit profile asks for, with the two fields the individual tests vary left to
     // the caller: the tier is preselected and catering starts ticked, so a filled dietary note is
     // all the catering section needs, and an empty coupon is one the API accepts.
@@ -523,4 +672,10 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
 
     private static Task SubmitAsync(IPage page) =>
         page.GetByRole(AriaRole.Button, new() { Name = "Submit registration", Exact = true }).ClickAsync();
+
+    private static Task SaveDraftAsync(IPage page) =>
+        page.GetByRole(AriaRole.Button, new() { Name = "Save draft", Exact = true }).ClickAsync();
+
+    private static Task LoadSavedDraftAsync(IPage page) =>
+        page.GetByRole(AriaRole.Button, new() { Name = "Load saved draft", Exact = true }).ClickAsync();
 }

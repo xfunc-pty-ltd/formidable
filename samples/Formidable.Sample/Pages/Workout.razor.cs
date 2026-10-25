@@ -25,6 +25,7 @@ public partial class Workout : IDisposable
     // real browser. The session title varies row to row, but at this panel's width it
     // never wraps, so the same fixed row height as Virtualized applies here too.
     private const float SessionRowHeight = 118f;
+    private const string UnreadableDraftStatus = "The saved draft could not be read.";
 
     private static readonly string[] SessionTracks =
         ["Keynote", "Workshop", "Panel", "Lightning talks", "Lab"];
@@ -54,6 +55,14 @@ public partial class Workout : IDisposable
     // page: the checkbox is the control that governs the field's presence, so it is what answers
     // the click when the field itself no longer can.
     private ElementReference _includeCateringInput;
+
+    // Load saved draft resets the form, which builds the form's contents afresh, so by the time
+    // the load ends the button that was clicked is a new element and focus has fallen back to the
+    // page. The render after the load puts focus back on that button, so a keyboard user carries
+    // on from where they were, unless they have already put focus somewhere else while the load
+    // was still answering.
+    private ElementReference _loadDraftButton;
+    private bool _focusLoadDraftButton;
 
     private IFormidableEngine? _subscribedEngine;
 
@@ -115,13 +124,111 @@ public partial class Workout : IDisposable
         }));
     }
 
+    // A blocked draft is not saved: the status line names what blocks it, and whatever an
+    // earlier save kept stays as it was. The browser keeps a draft that passes, so it outlives
+    // a reload.
     private async Task SaveDraft()
     {
         var report = await Validator.ValidateAsync(_registration, ValidationProfile.Draft);
-        _status = report.IsValid
-            ? "Draft saved — no blocking issues."
-            : $"Draft blocked: {string.Join("; ", report.Errors.Select(e => e.Message))}";
+        if (!report.IsValid)
+        {
+            _status = $"Draft blocked: {string.Join("; ", report.Errors.Select(e => e.Message))}";
+            return;
+        }
+
+        await Js.InvokeVoidAsync("formidableSample.saveWorkoutDraft", JsonSerializer.Serialize(_registration));
+        _status = "Draft saved — no blocking issues.";
     }
+
+    // A loaded draft replaces what is on screen: the reset returns the form to how it opened,
+    // so nothing typed or submitted before the load outlasts it, and it leaves the model alone.
+    // The saved values then go onto the registration the form already holds, never a new one:
+    // the form is bound to this instance for the page's whole life. The sessions keep their row
+    // objects too, since a row's messages follow its object, so each saved row's seats go onto
+    // the row with the same Id. Writing values tells the form nothing, so the call after it asks
+    // the form what they have earned, as the /draft-load page shows.
+    private async Task LoadSavedDraft()
+    {
+        var json = await Js.InvokeAsync<string?>("formidableSample.loadWorkoutDraft");
+
+        // Plain reflection reads the draft, and a trimmed publish keeps that working for this
+        // type: the sample's model assembly is not marked trimmable, so partial trimming keeps
+        // every member it declares. The server's reply further down is a library type, whose
+        // assembly is trimmed, so that read goes through generated metadata instead.
+        EventRegistration? saved;
+        try
+        {
+            saved = json is null ? null : JsonSerializer.Deserialize<EventRegistration>(json);
+        }
+        catch (JsonException)
+        {
+            // A draft that no longer reads as a registration (edited by hand, say) is reported
+            // and left where it is, and the form stays as it was. The next draft that passes
+            // replaces it.
+            _status = UnreadableDraftStatus;
+            return;
+        }
+
+        if (saved is null)
+        {
+            _status = "No saved draft yet.";
+            return;
+        }
+
+        // A draft can parse and still hold something the page never saves: a list or a text value
+        // set to null, a null entry in a list, or two sessions with the same Id. All of it is
+        // checked here, before the reset. A throw after the reset would leave the form reset and
+        // only partly loaded, and a null text value that loaded could throw from Normalize() at a
+        // later submit. Such a draft is reported the way an unreadable one is.
+        if (!CanBeLoaded(saved))
+        {
+            _status = UnreadableDraftStatus;
+            return;
+        }
+
+        var savedSeats = saved.Sessions.ToDictionary(s => s.Id, s => s.Seats);
+
+        await _form!.ResetAsync();
+
+        _registration.ContactEmail = saved.ContactEmail;
+        _registration.EventName = saved.EventName;
+        _registration.EventDate = saved.EventDate;
+        _registration.EarlyBirdDeadline = saved.EarlyBirdDeadline;
+        _registration.Description = saved.Description;
+        _registration.CouponCode = saved.CouponCode;
+        _registration.IncludeCatering = saved.IncludeCatering;
+        _registration.CateringHeadcount = saved.CateringHeadcount;
+        _registration.DietaryNotes = saved.DietaryNotes;
+        _registration.TicketTier = saved.TicketTier;
+        _registration.VenueRegion = saved.VenueRegion;
+
+        _registration.Attendees.Clear();
+        _registration.Attendees.AddRange(saved.Attendees);
+
+        foreach (var session in _registration.Sessions)
+        {
+            if (savedSeats.TryGetValue(session.Id, out var seats))
+            {
+                session.Seats = seats;
+            }
+        }
+
+        await _form!.DiscloseLoadedValuesAsync();
+        _status = "Loaded the saved draft.";
+        _focusLoadDraftButton = true;
+    }
+
+    private static bool CanBeLoaded(EventRegistration saved) =>
+        saved.Attendees is not null
+        && saved.Sessions is not null
+        && saved.Attendees.All(a => a is not null)
+        && saved.Sessions.All(s => s is not null)
+        && saved.Sessions.Select(s => s.Id).Distinct().Count() == saved.Sessions.Count
+        && new[]
+        {
+            saved.ContactEmail, saved.EventName, saved.EventDate, saved.EarlyBirdDeadline, saved.Description,
+            saved.CouponCode, saved.CateringHeadcount, saved.DietaryNotes, saved.TicketTier, saved.VenueRegion,
+        }.All(value => value is not null);
 
     private void HandleBlocked() => _status = "Blocked by errors — fix them and resubmit.";
 
@@ -237,13 +344,28 @@ public partial class Workout : IDisposable
     // The engine notifies the components bound to it, not the page, so the aria-invalid above
     // would otherwise be one interaction stale: right at submit, then still "true" through the
     // check that cleared the error. The kit's own components subscribe for exactly this reason.
-    // This page's model never swaps, so the first engine it sees is the only one.
+    // A reset gives the form a new engine over the same model (Load saved draft makes one), so
+    // the subscription moves to whichever engine the form holds.
     protected override void OnAfterRender(bool firstRender)
     {
-        if (_subscribedEngine is null && _form?.Engine is { } engine)
+        if (_form?.Engine is { } engine && !ReferenceEquals(engine, _subscribedEngine))
         {
+            if (_subscribedEngine is not null)
+            {
+                _subscribedEngine.StateChanged -= OnEngineStateChanged;
+            }
+
             _subscribedEngine = engine;
             engine.StateChanged += OnEngineStateChanged;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusLoadDraftButton)
+        {
+            _focusLoadDraftButton = false;
+            await Js.InvokeVoidAsync("formidableSample.focusIfIdle", _loadDraftButton);
         }
     }
 

@@ -28,6 +28,30 @@ window.formidableSample = {
     setCulture: function (culture) {
         localStorage.setItem('formidable.culture', culture);
     },
+    // The Workout page's saved draft outlives a reload for the same reason, so it lives beside
+    // the culture: the whole registration, as the page serialized it. The write is bare, as the
+    // culture's is: a throw stops the save before the page reports it saved.
+    saveWorkoutDraft: function (json) {
+        localStorage.setItem('formidable.workout-draft', json);
+    },
+    // A browser that blocks site data throws on the read as well, and storage that cannot be read
+    // holds nothing this page can load, so the read answers the same null as nothing saved.
+    loadWorkoutDraft: function () {
+        try {
+            return localStorage.getItem('formidable.workout-draft');
+        } catch {
+            return null;
+        }
+    },
+    // Takes focus only when nothing holds it. A visitor who clicked into another box while a
+    // slow reply was pending has made their choice, and pulling focus back mid-word would undo it.
+    // Focus on the body, or on nothing, is the state a removed element leaves behind.
+    focusIfIdle: function (element) {
+        const active = document.activeElement;
+        if (element && (!active || active === document.body)) {
+            element.focus();
+        }
+    },
     // A dialog saying aria-modal="true" promises assistive technology that nothing outside it
     // can be reached, and only a key handler can keep that promise: CSS can paint the page
     // behind an overlay but cannot take it out of the tab order, and neither can markup. Tab off

@@ -734,38 +734,44 @@ reloads.
 
 ### Full workout
 
-The API must be running. Walk the tour first, on a fresh load: it is the page's *Try it*, eleven
-steps in eight groups. Then reload and walk the full set below it, top to bottom. Those rows
+The API must be running. Walk the tour first, on a fresh load: it is the page's *Try it*, thirteen
+steps in nine groups. Then reload and walk the full set below it, top to bottom. Those rows
 build on each other and check what the tour leaves to *How it works*.
 
 The tour:
 
-- [ ] *Try it* opens with the line about starting the API. Eight group headings follow, each over
-      its steps, numbered 1 to 11. They read "Save draft: the draft rules", "Contact email: an
-      async check", "Coupon code: the server's answer", "Catering: hidden fields", "Attendees: a
-      warning", "Sessions: a long list", "Ticket tier: a plain select" and "Venue region: Blazor's
-      own input". All read as small group titles in both colour schemes
+- [ ] *Try it* opens with the line about starting the API. Nine group headings follow, each over
+      its steps, numbered 1 to 13. The first four read "Save draft: the draft rules", "Save and
+      load a draft", "Contact email: an async check" and "Coupon code: the server's answer". The
+      rest read "Catering: hidden fields", "Attendees: a warning", "Sessions: a long list",
+      "Ticket tier: a plain select" and "Venue region: Blazor's own input". All read as small
+      group titles in both colour schemes
 - [ ] **Save draft (step 1):** the status line names Dietary notes alone, though four other
       required boxes are empty
-- [ ] **Contact email (step 2), in both colour schemes:** the spinner sits inside the box and
+- [ ] **Save and load a draft (steps 2 and 3), in both colour schemes:** after the reload, the
+      boxes you filled are empty, with no borders. *Load saved draft* brings Dietary notes and
+      Event name back with green borders, and Ticket tier and the top session seats turn green
+      too. Contact email, Event date and Venue region stay quiet. In a private window the status
+      line reads "No saved draft yet." and nothing else changes
+- [ ] **Contact email (step 4), in both colour schemes:** the spinner sits inside the box and
       turns while "checking…" shows under it, then the message lands
-- [ ] **Coupon code (steps 3 and 4):** `BOGUS` puts the server's message on Coupon code alone.
+- [ ] **Coupon code (steps 5 and 6):** `BOGUS` puts the server's message on Coupon code alone.
       `WELCOME10` clears it as the registration goes through
-- [ ] **Catering (steps 5 and 6):** the blocked submit names the form, not a field, in the error
+- [ ] **Catering (steps 7 and 8):** the blocked submit names the form, not a field, in the error
       summary. Ticking the box brings Dietary notes back empty and quiet until the submit shows
       its message
-- [ ] **Attendees (step 7):** the warning appears below the list with the eleventh row, not
+- [ ] **Attendees (step 9):** the warning appears below the list with the eleventh row, not
       before
-- [ ] **Sessions (steps 8 and 9):** Session 150's message appears on the first Tab. The click on
+- [ ] **Sessions (steps 10 and 11):** Session 150's message appears on the first Tab. The click on
       its entry scrolls the list back to the row and lands focus in its box
-- [ ] **Ticket tier (step 10):** the message and the entry arrive as you pick, before any Tab
-- [ ] **Venue region (step 11):** the native message appears on Tab with no submit, and the
+- [ ] **Ticket tier (step 12):** the message and the entry arrive as you pick, before any Tab
+- [ ] **Venue region (step 13):** the native message appears on Tab with no submit, and the
       click lands focus back in the box
 - [ ] Each step ends with a "More on" link on its own indented line, in both colour schemes. After
-      step 11, follow each one and come back with the browser's Back button. Each opens the page
-      it names inside the app: Draft vs Submit, Async rules, Server round-trip, Progressive
-      disclosure, Severity levels, Virtualize + KeepRegistered, Wrapping a foreign control or
-      Vanilla interop
+      step 13, follow each one and come back with the browser's Back button. Each opens the page
+      it names inside the app: Draft vs Submit, Loading a saved draft, Async rules, Server
+      round-trip, Progressive disclosure, Severity levels, Virtualize + KeepRegistered, Wrapping
+      a foreign control or Vanilla interop
 
 The full set:
 
@@ -789,7 +795,7 @@ The full set:
       colour schemes; the form's entry comes with the gate rows. Click the SAME entry with the
       mouse: it scrolls and takes focus with NO outline. Then click stray page background or a
       fieldset's padding: nothing paints an outline
-- [ ] `taken@example.com` in Contact email (the tour's step 2): each keystroke asks about a new
+- [ ] `taken@example.com` in Contact email (the tour's step 4): each keystroke asks about a new
       address. "checking…" shows for about 300 ms, then "That email is already registered".
       Clear the box and type it again: the other messages come and go, but NO "checking…"
       appears. This page's memo keeps each address's answer for five minutes (Async rules' memo
@@ -814,19 +820,19 @@ The full set:
 - [ ] Set **Early-bird deadline** AFTER **Event date** and tab out: the cross-field rule objects.
       Move it back on or before the event date and it clears. The rule runs only once both
       dates are real dates
-- [ ] The tour's step 3: replace Contact email with a fresh address. Fill **Event name**,
+- [ ] The tour's step 5: replace Contact email with a fresh address. Fill **Event name**,
       **Event date**, **Dietary notes** and **Venue region** (five fields with Contact email),
       then submit with coupon `BOGUS`. The coupon's answer always arrives LAST by design, since
       the page posts only after a submit finds nothing to block it. So the server's 400 lands
       inline on Coupon code with the rest of the form already clean
-- [ ] The tour's step 4: change to `WELCOME10` and resubmit. The new answer REPLACES the old one,
+- [ ] The tour's step 6: change to `WELCOME10` and resubmit. The new answer REPLACES the old one,
       with no stale coupon error, and the registration is accepted
 - [ ] With everything else valid, clear Dietary notes and press Tab. "Dietary notes are required"
       answers your edit as soon as its check does, with no submit
 - [ ] Untick *Include catering*: the field leaves and takes its message with it, under the box
       and in the error summary alike
 - [ ] Submit: the form blocks with "information that is not currently displayed is invalid"
-      (the tour's step 5). The one rule that can block has nowhere to show, so nothing on screen
+      (the tour's step 7). The one rule that can block has nowhere to show, so nothing on screen
       explains it. The accepted submit above cleared what earlier submits had shown, so the
       error summary has no entry for the note either
 - [ ] **The gate survives editing.** While the form stays blocked, type into Description and
@@ -837,7 +843,7 @@ The full set:
 - [ ] **The gate entry lands too.** Click that form-level entry: the FORM scrolls into view and
       takes focus. From the KEYBOARD it shows the accent outline in both colour schemes; by MOUSE,
       the scroll alone
-- [ ] **Disclosure (the tour's step 6).** Re-tick *Include catering*: the note comes back empty
+- [ ] **Disclosure (the tour's step 8).** Re-tick *Include catering*: the note comes back empty
       and stays quiet. Submit, and its message appears inline and in the error summary, and the
       form-level line gives way to it
 - [ ] **A shown error stays listed.** Untick once more: the field goes and takes its inline
@@ -861,7 +867,7 @@ The full set:
 - [ ] Type a name into that row and press Tab, then come back, clear it and press Tab again.
       "Attendee name is required" appears inline and in the error summary as soon as that
       edit's check answers, with NO submit. Clicking that entry focuses that row's Name
-- [ ] Fill that Name, then add ten more named rows (the tour's step 7 adds blank ones). Past
+- [ ] Fill that Name, then add ten more named rows (the tour's step 9 adds blank ones). Past
       ten, the warning that opens "More than 10 attendees needs approval" appears below the
       list. It goes on to say the submission is not blocked
 - [ ] With 11 rows the Attendees fieldset is tall. Click the warning's entry in the error
@@ -875,7 +881,7 @@ The full set:
 - [ ] *Remove* every row: the warning gives way to the info "You can add attendees now or after
       registering"
 - [ ] Scroll the Sessions list to the bottom, set the last session's Seats to `900` and press
-      Tab (the tour's step 8). The row objects on the **FIRST Tab**: "Seats must be a whole
+      Tab (the tour's step 10). The row objects on the **FIRST Tab**: "Seats must be a whole
       number between 0 and 500" appears as soon as that edit's check answers. No second edit is
       needed to shake it loose
 - [ ] Repeat on another row to be sure it is not a one-off, then set THAT row back to `0`. The
@@ -886,10 +892,10 @@ The full set:
       too**: with no click at all, the list scrolls itself, Virtualize renders the row, and
       focus lands in its Seats box
 - [ ] Scroll the list back to its top, then click that entry in the error summary (the tour's
-      step 9). The list scrolls itself, Virtualize renders the row, and focus lands in its Seats
+      step 11). The list scrolls itself, Virtualize renders the row, and focus lands in its Seats
       box. Set it back to `0`: that edit's check takes both the inline message and the entry
       away
-- [ ] Set **Ticket tier** to the blank *Choose…* (the tour's step 10). Choosing is a change, so
+- [ ] Set **Ticket tier** to the blank *Choose…* (the tour's step 12). Choosing is a change, so
       the foreign select takes the same inline message and error-summary entry as any wrapped
       input, with NO submit. Tab out and the red border joins them: a focused box wears the
       accent border whatever its state, so the red one waits until you leave. Clicking that
@@ -898,7 +904,7 @@ The full set:
       check that change starts turns it green, with no submit needed first. So, in both colour
       schemes, the native input wears the same green border a Formidable input shows: Formidable's
       `FieldCssClassProvider` serves both kinds of input
-- [ ] Clear **Venue region** and press Tab (the tour's step 11). The native `ValidationMessage`
+- [ ] Clear **Venue region** and press Tab (the tour's step 13). The native `ValidationMessage`
       shows "Venue region is required" with NO submit, since Formidable writes each error into
       the form's `EditContext`. The error summary lists it too. Clicking THAT entry **lands in
       the native input**: the page gives it the field's id, which is all a click in the error
@@ -1027,6 +1033,9 @@ API needs to be running: the artifact answers its own requests.
       workout tour's "More on" links and the links in a page's intro or *How it works*, such as
       Draft vs Submit's link to Custom profiles. Each opens the page it names with the address
       still under `/formidable/`, never the site's root
+- [ ] On `/workout`, fill in Dietary notes, set *Session 001: Workshop* to `3`, and click *Save
+      draft*. Open another page from the sidebar, come back, and click *Load saved draft*: the
+      note and the seats come back with green borders
 - [ ] Open `/mudblazor` from the sidebar, then again by typing its address. Both times, the page
       under the "Fitting MudBlazor" heading is a note, not a form. It says Formidable supports
       MudBlazor and that the page runs when you run the sample locally, and gives the reason

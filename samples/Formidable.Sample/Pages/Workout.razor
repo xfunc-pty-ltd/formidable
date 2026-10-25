@@ -22,35 +22,40 @@
         <ol>
             <li>Click <strong>Save draft</strong> with nothing filled in.<div class="teaching__result"><span class="teaching__label">You see:</span> "Draft blocked: Dietary notes are required" in the status line under the buttons.</div><div class="teaching__why"><span class="teaching__label">Why:</span> A draft save skips required rules, except the one on <strong>Dietary notes</strong>.</div><div class="teaching__page">More on <a href="profiles">Draft vs Submit</a>.</div></li>
         </ol>
-        <h3>Contact email: an async check</h3>
+        <h3>Save and load a draft</h3>
         <ol start="2">
+            <li>Fill in <strong>Dietary notes</strong> and <strong>Event name</strong>, click <strong>Save draft</strong>, reload the page, then click <strong>Load saved draft</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> both values back with green borders, and "Loaded the saved draft." in the status line. <strong>Ticket tier</strong> and the session seats turn green too, and the empty boxes stay quiet.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Save draft</strong> keeps every value in this browser, the ones the form opened with included. Loading asks the form what each value under a rule has earned, and a box with nothing in it is left alone.</div><div class="teaching__page">More on <a href="draft-load">Loading a saved draft</a>.</div></li>
+            <li>Open the page in a private window (or delete <code>formidable.workout-draft</code> from the site's local storage), then click <strong>Load saved draft</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "No saved draft yet." in the status line, and nothing else changes.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The draft lives in one browser's storage, so a window without it has nothing to load.</div><div class="teaching__page">More on <a href="draft-load">Loading a saved draft</a>.</div></li>
+        </ol>
+        <h3>Contact email: an async check</h3>
+        <ol start="4">
             <li>Type <code>taken@@example.com</code> into <strong>Contact email</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> a spinner in the box and "checking…" under it, then "That email is already registered".</div><div class="teaching__page">More on <a href="async">Async rules</a>.</div></li>
         </ol>
         <h3>Coupon code: the server's answer</h3>
-        <ol start="3">
+        <ol start="5">
             <li>Replace <strong>Contact email</strong> with <code>ada@@example.com</code>, fill in <strong>Event name</strong>, <strong>Event date</strong>, <strong>Dietary notes</strong> and <strong>Venue region</strong>, type <code>BOGUS</code> into <strong>Coupon code</strong>, and click <strong>Submit registration</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Coupon code is not recognised" under <strong>Coupon code</strong>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> Only the server knows the codes, and its rejection lands on the field it names.</div><div class="teaching__page">More on <a href="server">Server round-trip</a>.</div></li>
             <li>Change <strong>Coupon code</strong> to <code>WELCOME10</code> and click <strong>Submit registration</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the coupon's message gone, and "Submitted" in the status line.</div><div class="teaching__page">More on <a href="server">Server round-trip</a>.</div></li>
         </ol>
         <h3>Catering: hidden fields</h3>
-        <ol start="5">
+        <ol start="7">
             <li>Clear <strong>Dietary notes</strong> and press Tab, then untick <strong>Include catering</strong> and click <strong>Submit registration</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "The form cannot be submitted because information that is not currently displayed is invalid." in the error summary.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Dietary notes</strong>' rule still applies while hidden, and no error on screen explains the block.</div><div class="teaching__page">More on <a href="disclosure">Progressive disclosure</a> (which messages a form shows, and when).</div></li>
             <li>Tick <strong>Include catering</strong> and click <strong>Submit registration</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Dietary notes are required" under the box and in the error summary, replacing the message about the form.</div><div class="teaching__page">More on <a href="disclosure">Progressive disclosure</a>.</div></li>
         </ol>
         <h3>Attendees: a warning</h3>
-        <ol start="7">
+        <ol start="9">
             <li>Click <strong>Add attendee</strong> eleven times.<div class="teaching__result"><span class="teaching__label">You see:</span> the warning "More than 10 attendees needs approval" below the list, once the eleventh row appears.</div><div class="teaching__page">More on <a href="severity">Severity levels</a>.</div></li>
         </ol>
         <h3>Sessions: a long list</h3>
-        <ol start="8">
+        <ol start="10">
             <li>Scroll to the end of the <strong>Sessions</strong> list, replace <code>0</code> with <code>900</code> in <strong>Session 150</strong>, and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> "Seats must be a whole number between 0 and 500" under it.</div><div class="teaching__page">More on <a href="virtualized">Virtualize + KeepRegistered</a> (<code>KeepRegistered</code> is a setting that page explains).</div></li>
             <li>Scroll the list back to its top, then click that message in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> the list scrolls back to <strong>Session 150</strong>, with focus in its box.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The list renders only the rows near its view, so the page scrolls it first.</div><div class="teaching__page">More on <a href="virtualized">Virtualize + KeepRegistered</a>.</div></li>
         </ol>
         <h3>Ticket tier: a plain select</h3>
-        <ol start="10">
+        <ol start="12">
             <li>Pick <strong>Choose…</strong>, the blank option, in <strong>Ticket tier</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Ticket tier is required" under <strong>Ticket tier</strong> and in the error summary.</div><div class="teaching__why"><span class="teaching__label">Why:</span> A <code>FormidableField</code> (a wrapper for one field's markup) connects this plain <code>&lt;select&gt;</code> to the form.</div><div class="teaching__page">More on <a href="foreign">Wrapping a foreign control</a>.</div></li>
         </ol>
         <h3>Venue region: Blazor's own input</h3>
-        <ol start="11">
+        <ol start="13">
             <li>Clear <strong>Venue region</strong>, press Tab, then click "Venue region is required" in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> that message under the box, and focus back in <strong>Venue region</strong>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The page gives Blazor's <code>InputText</code> the field's id, so the error summary can focus it.</div><div class="teaching__page">More on <a href="vanilla">Vanilla interop</a>.</div></li>
         </ol>
     </TryIt>
@@ -74,7 +79,9 @@
     </Rules>
     <HowItWorks>
         <h3>Draft and submit</h3>
-        <p><strong>Submit registration</strong> runs the form's submit, which checks every rule, and posts the registration to the sample API when nothing blocks it. <strong>Save draft</strong> asks the validator directly for the <code>Draft</code> profile (a profile is a named selection of a validator's rules). It writes only the status line, so a draft save never changes a field's message.</p>
+        <p><strong>Submit registration</strong> runs the form's submit, which checks every rule, and posts the registration to the sample API when nothing blocks it. <strong>Save draft</strong> asks the validator directly for the <code>Draft</code> profile (a profile is a named selection of a validator's rules). On the page it changes only the status line, so a draft save never changes a field's message.</p>
+        <p>A draft that nothing blocks is also kept in this browser, so it outlives a reload. <strong>Load saved draft</strong> calls the form's <code>ResetAsync()</code>, puts the saved values back, then calls <code>DiscloseLoadedValuesAsync()</code> to ask what they have earned. The <a href="draft-load">Loading a saved draft</a> page shows that call on its own.</p>
+        <p>Each box that has a rule and holds a value counts as one you changed: a passing value turns green, and a failing one shows its message. Boxes the draft leaves empty stay quiet, and anything you had typed or submitted before the load is replaced by the draft.</p>
         <p>The validator splits its rules in two. The draft rules (the rules a draft save checks, which a submit checks too) hold most formats and ranges, the availability check (whether the address is already registered) and the two rules on the number of attendees. The submit rules hold the required rules and each attendee's email format.</p>
         <p><strong>Dietary notes</strong> is the one exception: its required rule is a draft rule, so a draft save answers about it as well.</p>
         <p>That split decides what a save or a submit checks, not when a message appears. Type <code>nope@@</code> into <strong>Contact email</strong> and clear <strong>Event name</strong>, and each shows its message with no submit. <strong>Save draft</strong> then names the address but not <strong>Event name</strong>, because the rule that requires <strong>Event name</strong> is not a draft rule.</p>
@@ -100,11 +107,11 @@
         <p>The rule that requires <strong>Dietary notes</strong> carries no condition, so it fails whether or not the box is on the page. For that field, the checkbox decides whether it shows, never whether its rule applies.</p>
         <p>At a submit, a field's error shows only while the field is on the page (the sessions' setting below is an exception). Once a submit has shown a field's error, under the field and in the error summary, the form keeps listing that field's errors, on the page or off, until a submit goes through or the form resets.</p>
         <p>When a blocked submit can show none of its errors under a field, the form adds a message about itself to the error summary. That entry belongs to the form: the blocked submit moves focus to the form, and a click on the entry does too. For an error no submit has shown, the form's entry takes the place of one pointing at nothing.</p>
-        <p>At step 5, the note is off the page and is the only field failing. No error can show under a field, so the message about the form appears. The note gets no entry of its own either: the submit at step 4 went through, and a submit that goes through (or a reset) makes the form forget the errors earlier submits showed.</p>
+        <p>At step 7, the note is off the page and is the only field failing. No error can show under a field, so the message about the form appears. The note gets no entry of its own either: the submit at step 6 went through, and a submit that goes through (or a reset) makes the form forget the errors earlier submits showed.</p>
         <p>An edit that puts no error on the page leaves that message standing. Type into <strong>Description</strong> while the form is blocked, and the box takes the green border that confirms a value would pass a submit, but the message stays. It lasts until an error on the page explains the block, and <strong>Description</strong> has no rule that could give one.</p>
-        <p>A field that leaves the page stops counting as changed. So ticking the box brings the note back empty and quiet, even after you cleared it at step 5. The next submit shows the note's error under the box and in the error summary, and the message about the form gives way to it, as step 6 shows.</p>
-        <p>Untick the box again after step 6, and the note and its message leave, but the error summary keeps the note's entry: a submit has shown its error. Another submit lists it again, with the message about the form beside it, since no error shows under a field. The note's rule never stopped failing; only whether its error could show changed.</p>
-        <p>Step 5 went differently. Clearing the note and pressing Tab showed its message at once, under the box and in the error summary, as for any field you change. That message came from your edit, not a submit, so unticking took it away.</p>
+        <p>A field that leaves the page stops counting as changed. So ticking the box brings the note back empty and quiet, even after you cleared it at step 7. The next submit shows the note's error under the box and in the error summary, and the message about the form gives way to it, as step 8 shows.</p>
+        <p>Untick the box again after step 8, and the note and its message leave, but the error summary keeps the note's entry: a submit has shown its error. Another submit lists it again, with the message about the form beside it, since no error shows under a field. The note's rule never stopped failing; only whether its error could show changed.</p>
+        <p>Step 7 went differently. Clearing the note and pressing Tab showed its message at once, under the box and in the error summary, as for any field you change. That message came from your edit, not a submit, so unticking took it away.</p>
         <p>Click the note's entry while the note is off the page, and focus moves to <strong>Include catering</strong>, the checkbox whose state is the reason the field is gone. The page hands the form and the error summary a <code>FocusFallback</code> callback, which runs when focus misses its field. For a hidden <strong>Dietary notes</strong> or <strong>Catering headcount</strong>, it focuses the checkbox instead of retrying a box that will not come back.</p>
         <h3>Attendees</h3>
         <p>Rows come and go with <strong>Add attendee</strong> and each row's <strong>Remove</strong>. A new row stays quiet until you change it or submit, though its empty <strong>Name</strong> already fails its rule. Type a name, press Tab, clear it and press Tab again, and "Attendee name is required" appears under it and in the error summary, with no submit.</p>
@@ -254,6 +261,7 @@
 
             <div class="actions">
                 <button type="button" @onclick="SaveDraft">Save draft</button>
+                <button type="button" @ref="_loadDraftButton" @onclick="LoadSavedDraft">Load saved draft</button>
                 <button type="submit" class="primary">Submit registration</button>
             </div>
         </FormidableForm>
