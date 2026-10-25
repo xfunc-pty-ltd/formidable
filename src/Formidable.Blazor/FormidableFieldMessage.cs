@@ -38,6 +38,9 @@ public abstract class FormidableMessageBase<TValue> : FormidableAccessorComponen
     /// <summary>The field the list speaks for, so a publish that names it re-renders the list.</summary>
     private protected override FieldIdentifier? ObservedField => _field;
 
+    /// <summary>Whether <see cref="ItemTemplate"/> is set, since a render then runs it again for each issue and re-sets any components inside it.</summary>
+    private protected override bool RenderReSetsKitChildren => ItemTemplate is not null;
+
     /// <summary>Resolves the field <see cref="FormidableAccessorComponentBase{TValue}.For"/> names, computes the list's id, and hands registration to <see cref="RegisterField"/>.</summary>
     /// <param name="context">The context being bound.</param>
     /// <returns>Whatever <see cref="RegisterField"/> returns.</returns>

@@ -82,9 +82,25 @@ raised inside an event handler reaches that event's caller.
 
 Each kit component reads the event's change set and re-renders only for a publish that names its
 field; the summary re-renders for any publish that names a field or a form-level value, and a
-page's own handler reads whatever it is written to read. Under `VerifyRowKeys` or
-`ReportStaleRegistrations` every publish re-renders every observing kit component, so the row-key
-check judges the accessor after each notify.
+page's own handler reads whatever it is written to read.
+
+Under `VerifyRowKeys` or `ReportStaleRegistrations`, some components re-render for more: those whose
+render re-sets kit components (`RenderReSetsKitChildren`: a `FormidableField`, and a message with an
+`ItemTemplate`). Each also answers a form-level change and a publish naming a field of its own field
+name on another owner. A select's `ChildContent` is its `<option>` elements, where no kit component
+belongs, so the select stays a leaf.
+
+After a row moves or an owner is replaced, a publish can name one of three things:
+
+- the field the wrapper registered (a kit input's own commit), which the field filter answers;
+- the same name on the object the accessor now reaches (a page's notify built from the accessor,
+  or the moved-in row's verdict), which the name test answers;
+- no row field at all (a notify of the list), which reaches the wrappers as the form starts and
+  stops checking around the check that notify starts, both form-level changes.
+
+A leaf keeps the field filter: its own re-render reaches no parameter set, so it would feed the
+check nothing. An accessor re-pointed at another member name is the one shape the name test misses;
+only a form-level change or the page's own render reaches it.
 
 ## The pass kinds
 
@@ -1665,7 +1681,8 @@ render dispatch (`InvokeAsync`), which runs inline when the caller is already on
 context, as an event handler is.
 
 Every component observing the engine answers a publish that names its field with
-`InvokeAsync(StateHasChanged)`, and under either row-key check it answers every publish. With no
+`InvokeAsync(StateHasChanged)`. Under either row-key check a wrapper also answers a form-level change
+and its own field name on another owner, which a replaced owner's field always is. With no
 render batch in progress it re-renders before the notify returns: the relay raises from its own
 render, which runs inside the publish ([How a publish reaches the kit](#how-a-publish-reaches-the-kit)).
 

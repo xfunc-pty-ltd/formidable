@@ -564,9 +564,15 @@ names and types come from the component's own accessor.
 
 `bool`, defaults to `false`. A development-time check that each bound component still speaks for the
 field it registered: it re-reads its accessor on every parameter set, and a divergence throws an
-`InvalidOperationException` naming the field and the fix. While it is on, every kit component that
-observes the engine re-renders on every change: a `FormidableField`'s re-render re-sets the
-components inside it, and the check reads as each one is re-set.
+`InvalidOperationException` naming the field and the fix.
+
+While it is on, a kit component that can hold your components (a `FormidableField`, a message with
+an `ItemTemplate`) also re-renders for any form-wide change, such as the form starting or stopping
+checking. It re-renders too for a change to a field of its own name on another object. Its
+re-render re-sets the components inside it, and the check reads as each one is re-set.
+
+Outside those, an input or a message without a template re-renders only for a change to its own
+field, check or no check.
 
 Correctly keyed rows never trip it for anything done to the list itself (for a list of strings or
 numbers, the element around the loop keyed by the list and no key on the rows);
@@ -585,14 +591,14 @@ it is on in every build, since the page's whole point is the row-key discipline 
 ### `ReportStaleRegistrations`
 
 `bool`, defaults to `false`. The report-never-throw sibling of [`VerifyRowKeys`](#verifyrowkeys),
-for a misfiled row you are hunting where a throw is the wrong severity: a divergence is reported
-rather than thrown, through the channels
-[`StaleRegistrationDiagnostic`](#staleregistrationdiagnostic) documents. The form renders on,
-misfiled messages and all; with `VerifyRowKeys` on, the exception replaces the report.
+for wherever a throw is the wrong severity: a divergence is reported rather than thrown, through the
+channels [`StaleRegistrationDiagnostic`](#staleregistrationdiagnostic) documents. The form renders
+on, misfiled messages and all; with `VerifyRowKeys` on, the exception replaces the report.
 
-While it is on, every kit component that observes the engine re-renders on every change (every kit
-component except `FormidableFieldAnchor` and `FormidableRequiredIndicator`). A `FormidableField`'s re-render
-re-sets the components inside it, and the check reads as each one is re-set.
+While it is on, the same components re-render as under [`VerifyRowKeys`](#verifyrowkeys). A
+`FormidableField`, or a message with an `ItemTemplate`, also re-renders for any form-wide change and
+for its field's name on another object. That re-sets the components inside it, where the check
+reads.
 
 One divergence is one report, repeating only after the accessor names the registered field again or
 the component rebinds. Off by default because detection is not free (the same accessor resolution
@@ -603,15 +609,23 @@ sizes by shape).
 builder.Services.AddFormidableBlazor(options =>
 {
     options.VerifyRowKeys = builder.HostEnvironment.IsDevelopment();
-    options.ReportStaleRegistrations = true; // while hunting a misfiled row
+    options.ReportStaleRegistrations = true; // or only while hunting a misfiled row
 });
 ```
 
-The first line turns `VerifyRowKeys` on in Development. The second turns this option on while you
-hunt a misfiled row; take it out again afterwards rather than leaving it on in production, since
-while it is on every kit component that observes the engine re-renders on every change. This option
-latches as `VerifyRowKeys` does: the answer is captured once, per component, the moment it binds, so
-flipping it mid-session reaches only components binding afterward.
+The first line turns `VerifyRowKeys` on in Development. The second turns reporting on in every
+build, and in Development the first line's exception takes the report's place.
+
+Where the form's inputs and messages sit outside any `FormidableField`, without an `ItemTemplate`,
+the re-renders this option adds are few. It can then stay on in production, as long as the accessor
+cost above fits the form.
+
+Where `FormidableField` wraps most of the form (a UI library's controls, or the rows of a
+collection), everything inside it re-renders as the form starts and stops checking. There, turn it
+on while you hunt a misfiled row instead.
+
+This option latches as `VerifyRowKeys` does: the answer is captured once, per component, the moment
+it binds, so flipping it mid-session reaches only components binding afterward.
 
 ### `InlineMessageLive`
 

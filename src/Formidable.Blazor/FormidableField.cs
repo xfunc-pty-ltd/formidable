@@ -37,6 +37,9 @@ public sealed class FormidableField<TValue> : FormidableAccessorComponentBase<TV
     /// <summary>The wrapped field, so a publish that names it renders <see cref="ChildContent"/> again.</summary>
     private protected override FieldIdentifier? ObservedField => _field;
 
+    /// <summary>Returns <see langword="true"/>: every render runs <see cref="ChildContent"/> again, which re-sets the components inside it.</summary>
+    private protected override bool RenderReSetsKitChildren => true;
+
     /// <summary>Resolves the field <see cref="FormidableAccessorComponentBase{TValue}.For"/> names and its element id, and registers it with <paramref name="context"/>'s registry under <see cref="KeepRegistered"/> and <see cref="WaitForSubmit"/>.</summary>
     /// <param name="context">The context being bound.</param>
     /// <returns>The registration the base releases on the next rebind or on disposal.</returns>

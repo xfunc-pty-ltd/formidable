@@ -13,9 +13,9 @@ namespace Formidable.Blazor.Tests;
 /// under the replaced instance. The engine publishes state synchronously inside
 /// <c>EditContext.NotifyFieldChanged</c> — a fresh owner is a fresh <see cref="FieldIdentifier"/>,
 /// so the touched flip publishes unconditionally, and on the default cadence the live pass it
-/// starts publishes in the same window — and each publish re-renders the components observing the
-/// engine. A re-rendering wrapper (here a <see cref="FormidableField{TValue}"/>) re-supplies the
-/// bound components inside it, whose accessors then resolve the replacement while their
+/// starts publishes in the same window — and under a row-key check each publish re-renders the
+/// wrapper. A re-rendering wrapper (here a <see cref="FormidableField{TValue}"/>) re-supplies
+/// the bound components inside it, whose accessors then resolve the replacement while their
 /// registrations still name the old instance: with <see cref="FormidableOptions.VerifyRowKeys"/>
 /// on, that is the row-key exception raised in the middle of the page's own notify. Rendering
 /// first lets the keyed diff retire the old components and register the replacement, so the same

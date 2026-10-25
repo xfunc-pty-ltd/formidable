@@ -177,8 +177,9 @@ public class RowKeyCheckAfterBatchTests : BunitContext
     /// <summary>
     /// A consumer's field primitive: a <see cref="FormidableField{TValue}"/> around a message slot,
     /// every <c>For</c> the same expression instance, as a wrapper that forwards its own parameter
-    /// passes it. The wrapper subscribes to nothing; the <see cref="FormidableField{TValue}"/>
-    /// re-renders this markup on every publish.
+    /// passes it. The wrapper subscribes to nothing; under either check the
+    /// <see cref="FormidableField{TValue}"/> re-renders this markup for its own field, a form-level
+    /// change and its field's name on another owner.
     /// </summary>
     private sealed class KeyedWrapper : ComponentBase
     {

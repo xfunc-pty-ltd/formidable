@@ -405,10 +405,12 @@ than a diagnostic where a developer is watching.
 divergence through the diagnostic channels instead of throwing, and the form renders on, misfiled
 messages and all.
 
-Turn the throwing check on in Development builds. Turn the reporting one on while hunting a misfiled
-row, not permanently in production: while either check is on, every kit component that observes the
-engine re-renders on every change. With both off, a form that reaches production with the mistake
-misfiles a message rather than taking the page down.
+Turn the throwing check on in Development builds. The reporting one adds few re-renders where the
+form's inputs and messages sit outside any `FormidableField`, without an `ItemTemplate`. There it
+can stay on in production, as long as its accessor cost fits the form. Where a `FormidableField`
+wraps most of the form, turn it on while hunting a misfiled row instead
+([what the two checks cost](#what-do-the-two-checks-cost) says why). With both off, a form that
+reaches production with the mistake misfiles a message rather than taking the page down.
 
 A row list rendered without `@key` is the common way to produce the divergence, and not the only
 one. Another shape needs no collection anywhere on the page: a page that replaces the object a
@@ -443,11 +445,20 @@ Each compiled resolution costs tens of microseconds and about 4 KB on desktop .N
 build; WebAssembly is not measured. Budget for the deepest accessors the form renders, and for every
 row bound by its index.
 
-While either check is on, every kit component that observes the engine also re-renders on every
-change, not only on a change that names its own field. That re-render is a cost of its own. It is
-also what multiplies the parameter sets the resolution runs on: each wrapper's re-render re-sets the
-components inside it, and each re-set resolves an accessor again. Both costs are why the checks
-belong in Development builds or in a hunt for a misfiled row, not in production.
+While either check is on, a kit component that can hold your components (a `FormidableField`, a
+message with an `ItemTemplate`) also re-renders for any form-wide change, such as the form starting
+or stopping checking. It re-renders too for a change to a field of its own name on another object,
+which a moved row or a replaced object can produce.
+
+That re-render is a cost of its own, and it multiplies the parameter sets the resolution runs on: it
+re-sets the components inside the wrapper, and each re-set resolves an accessor again.
+
+Outside those, an input or a message without a template re-renders only for a change to its own
+field, check or no check. So where the form's inputs and messages sit outside any `FormidableField`,
+without an `ItemTemplate`, the reporting check adds few re-renders, and its cost is mostly the
+accessor resolution sized above. Where `FormidableField` wraps most of the form, everything inside
+it re-renders as the form starts and stops checking. Both costs are why the checks belong there in
+Development builds or in a hunt for a misfiled row.
 
 ### Can the reporting check take the page down?
 

@@ -14,10 +14,11 @@ namespace Formidable.Blazor.Tests;
 /// Render ceilings on a form with the sample's largest page's composition (the Workout page,
 /// component for component, with a fixed window of ten session rows where Virtualize would be).
 /// One committed edit, before or after a submit, re-renders the edited field's components and
-/// nothing else; a blocked submit re-renders every field for its two pending flips and the form's
-/// own renders. bUnit's RenderCount on a component that has children counts their updates too (its
-/// UpdateParents walk), so every assertion here reads leaf components: inputs, messages, the
-/// summary and the consumer children, never a wrapper, the form or the host.
+/// nothing else (under a row-key check, the wrappers' contents too); a blocked submit re-renders
+/// every field for its two pending flips and the form's own renders. bUnit's RenderCount on a
+/// component that has children counts their updates too (its UpdateParents walk), so every
+/// assertion here reads leaf components: inputs, messages, the summary and the consumer children,
+/// never a wrapper, the form or the host.
 /// </summary>
 public class WorkoutShapedRenderCeilingTests : BunitContext
 {
@@ -161,6 +162,43 @@ public class WorkoutShapedRenderCeilingTests : BunitContext
         await Services.DisposeAsync();
     }
 
+    // Under a row-key check a wrapper also answers a form-level change, and the check an edit
+    // starts begins and ends as one, so a committed edit re-renders the four wrappers' contents
+    // beside the edited field's own input and message, while every leaf outside a wrapper keeps
+    // the field filter. That is 15 leaf renders: 4 inputs (the edited one, the wrapped contact
+    // email and the attendee's two), 5 messages (those four fields' and the ticket tier's), the 4
+    // wrapper children, the collection message and the summary. Answering every publish under a
+    // check, as the whole-form exemption did, rendered every leaf once: 47.
+    [Fact]
+    public async Task One_committed_edit_under_a_row_key_check_renders_the_edited_fields_components_the_wrappers_contents_and_the_summary()
+    {
+        var cut = await RenderWorkoutShapedFormAsync(new FormidableOptions { VerifyRowKeys = true });
+        var engine = cut.FindComponent<FormidableForm<Registration>>().Instance.Engine!;
+        var before = RenderCounts(cut);
+
+        await cut.InvokeAsync(() => cut.Find("input[id$='-description']").Change("a note"));
+        cut.WaitForState(() => !engine.IsValidating, TimeSpan.FromSeconds(5));
+        await cut.InvokeAsync(() => { });
+
+        int Delta<T>()
+            where T : IComponent =>
+            cut.FindComponents<T>().Sum(c => c.RenderCount - before[c.ComponentId]);
+
+        var inputs = Delta<FormidableInputText>();
+        var messages = Delta<FormidableFieldMessage<string>>();
+        var children = Delta<WrapperChild>();
+        var collection = Delta<FormidableCollectionMessage<List<Attendee>>>();
+        var summary = Delta<FormidableSummary>();
+        Assert.Equal(4, inputs);
+        Assert.Equal(5, messages);
+        Assert.Equal(4, children);
+        Assert.Equal(1, collection);
+        Assert.Equal(1, summary);
+        Assert.Equal(15, inputs + messages + children + collection + summary);
+
+        await Services.DisposeAsync();
+    }
+
     private static void Note<T>(List<string> rendered, string kind, IRenderedComponent<T> component, Dictionary<int, int> before)
         where T : IComponent
     {
@@ -177,13 +215,15 @@ public class WorkoutShapedRenderCeilingTests : BunitContext
     /// field its green at once, a one-time move the kit draws, and a window opened before it would
     /// count those renders against the edit under test.
     /// </summary>
-    private async Task<IRenderedComponent<WorkoutShapedHost>> RenderWorkoutShapedFormAsync()
+    private async Task<IRenderedComponent<WorkoutShapedHost>> RenderWorkoutShapedFormAsync(FormidableOptions? options = null)
     {
         var registration = new Registration();
         registration.Attendees.Add(new Attendee());
         registration.Sessions.AddRange(Enumerable.Range(1, SessionRowsRendered).Select(i => new SessionPick { Id = i, Title = $"Session {i}", Seats = "0" }));
 
-        var cut = Render<WorkoutShapedHost>(p => p.Add(x => x.Registration, registration));
+        var cut = Render<WorkoutShapedHost>(p => p
+            .Add(x => x.Registration, registration)
+            .Add(x => x.FormOptions, options ?? Options));
         var engine = cut.FindComponent<FormidableForm<Registration>>().Instance.Engine!;
         await cut.InvokeAsync(() => cut.Find("input[id$='-couponcode']").Change("WELCOME10"));
         cut.WaitForState(() => !engine.IsValidating, TimeSpan.FromSeconds(5));
@@ -258,11 +298,15 @@ public class WorkoutShapedRenderCeilingTests : BunitContext
         [Parameter]
         public Registration Registration { get; set; } = default!;
 
+        /// <summary>The form's options; the defaults unless a ceiling measures under a row-key check.</summary>
+        [Parameter]
+        public FormidableOptions FormOptions { get; set; } = Options;
+
         protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
             builder.OpenComponent<FormidableForm<Registration>>(0);
             builder.AddComponentParameter(1, nameof(FormidableForm<Registration>.Model), Registration);
-            builder.AddComponentParameter(2, nameof(FormidableForm<Registration>.Options), Options);
+            builder.AddComponentParameter(2, nameof(FormidableForm<Registration>.Options), FormOptions);
             builder.AddComponentParameter(3, nameof(FormidableForm<Registration>.Validator), _validator);
             builder.AddComponentParameter(4, nameof(FormidableForm<Registration>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => inner =>
             {

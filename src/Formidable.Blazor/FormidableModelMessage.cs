@@ -25,6 +25,9 @@ public sealed class FormidableModelMessage : FormidableComponentBase
     /// <summary>The model-level field, so a publish that names it re-renders the list.</summary>
     private protected override FieldIdentifier? ObservedField => _field;
 
+    /// <summary>Whether <see cref="ItemTemplate"/> is set, since a render then runs it again for each issue and re-sets any components inside it.</summary>
+    private protected override bool RenderReSetsKitChildren => ItemTemplate is not null;
+
     /// <summary>Resolves the model-level field from <paramref name="context"/>'s model, computes the list's id, and registers nothing.</summary>
     /// <param name="context">The context being bound.</param>
     /// <returns>Always <see langword="null"/>.</returns>

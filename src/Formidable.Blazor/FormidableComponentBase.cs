@@ -55,6 +55,20 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     // that must redraw on every publish overrides OnEngineStateChanged and calls StateHasChanged.
     private protected virtual FieldIdentifier? ObservedField => null;
 
+    /// <summary>Whether this component's render re-sets kit components inside it, as a consumer's fragment can hold them; decides which publishes re-render it under a row-key check.</summary>
+    // The row-key checks read at a parameter set, and a component's own re-render reaches no
+    // parameter set of its own: only a render that re-sets the components inside it feeds the
+    // check. So under a check a component whose consumer fragment can hold kit components also
+    // re-renders for a publish after which a row may have moved, and a leaf keeps the field
+    // filter. A select's option content is no place for a kit component, so the select stays a
+    // leaf. Consulted for a field-scoped component only: a form-wide one already re-renders for
+    // every publish that names a field or a form-level change, which is everything the wider rule
+    // adds.
+    private protected virtual bool RenderReSetsKitChildren => false;
+
+    /// <summary>Whether <see cref="FormidableOptions.VerifyRowKeys"/> or <see cref="FormidableOptions.ReportStaleRegistrations"/> was on as this component bound.</summary>
+    private bool ChecksRowKeys => _verifyRowKeys || _reportStaleRegistrations;
+
     /// <summary>Binds the component to the cascaded context when that is a new instance; otherwise applies a change of <c>WaitForSubmit</c> where the component has one, and resolves the field for the row-key check <see cref="FormidableOptions.VerifyRowKeys"/> or <see cref="FormidableOptions.ReportStaleRegistrations"/> asks for, which <see cref="OnAfterRender"/> judges.</summary>
     /// <exception cref="InvalidOperationException">No <see cref="FormidableFormContext"/> is cascaded (the component stands outside a root), or, under <see cref="FormidableOptions.VerifyRowKeys"/>, the accessor cannot be resolved.</exception>
     /// <remarks>
@@ -81,7 +95,7 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
         var options = Context!.Engine.Options;
         _verifyRowKeys = options.VerifyRowKeys;
         _reportStaleRegistrations = options.ReportStaleRegistrations;
-        _registeredField = _verifyRowKeys || _reportStaleRegistrations ? ResolveField() : default;
+        _registeredField = ChecksRowKeys ? ResolveField() : default;
         _staleReported = false;
         _divergenceFound = false;
     }
@@ -140,12 +154,12 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     /// <summary>Resolves the field the accessor names now and keeps any divergence from the registered field for <see cref="OnAfterRender"/>, in whichever mode is on: <see cref="FormidableOptions.VerifyRowKeys"/> throws there, <see cref="FormidableOptions.ReportStaleRegistrations"/> alone reports there, and with both on the throw wins.</summary>
     /// <exception cref="InvalidOperationException">Under <see cref="FormidableOptions.VerifyRowKeys"/>, the accessor cannot be resolved.</exception>
     // Resolved here rather than after the render, so the cost stays one accessor resolution per
-    // parameter set: under a check a component re-renders on every publish, and most of those set
-    // no parameter.
+    // parameter set: under a check a wrapper re-renders for publishes that set none of its own
+    // parameters.
     private void VerifyRowKey()
     {
         _divergenceFound = false;
-        if (!_verifyRowKeys && !_reportStaleRegistrations)
+        if (!ChecksRowKeys)
         {
             return;
         }
@@ -261,9 +275,11 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     /// The base answers only a publish whose <see cref="FormidableStateChangedEventArgs.Includes"/>
     /// names this component's field; a form-wide component (the summary) answers any publish that
     /// names a field or a form-level value. While <see cref="FormidableOptions.VerifyRowKeys"/> or
-    /// <see cref="FormidableOptions.ReportStaleRegistrations"/> is on, every publish re-renders
-    /// the component, so the row-key check judges the accessor after each notify. A control that
-    /// must redraw on every publish overrides this and calls <c>StateHasChanged</c> itself.
+    /// <see cref="FormidableOptions.ReportStaleRegistrations"/> is on, a
+    /// <see cref="FormidableField{TValue}"/> or a templated message also answers a form-level change
+    /// and its field's name on another owner, so the check judges the components inside it. A
+    /// control that must redraw on every publish overrides this and calls <c>StateHasChanged</c>
+    /// itself.
     /// </remarks>
     protected virtual void OnEngineStateChanged(object? sender, FormidableStateChangedEventArgs e)
     {
@@ -275,23 +291,55 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
         _ = InvokeAsync(StateHasChanged);
     }
 
-    /// <summary>Whether <paramref name="e"/> moved anything this component draws, or a row-key check wants the re-render regardless.</summary>
+    /// <summary>Whether <paramref name="e"/> moved anything this component draws, or, under a row-key check, may have moved a row inside a component whose render re-sets kit children.</summary>
     /// <param name="e">The publish's arguments.</param>
-    /// <returns><see langword="true"/> under either row-key check; otherwise <see langword="true"/> for a field-scoped component whose field the publish names, and for a form-wide component when any field or form-level value moved.</returns>
+    /// <returns><see langword="true"/> for a field-scoped component whose field the publish names, and for a form-wide component when any field or form-level value moved; under either row-key check, also for a component whose render re-sets kit children when a form-level value moved or the publish names its field's name on another owner.</returns>
     // The row-key checks judge the accessor at the parameter set a parent's render drives, and a
-    // wrapper's render under a notify is what re-sets a retained component inside it: a notify
-    // for a replaced owner names the replacement's field, never the field the retained component
-    // registered, so the filter alone would leave that divergence unjudged until the page renders.
+    // wrapper's render under a notify is what re-sets a retained component inside it. After a row
+    // moves or an owner is replaced, a publish can name the field the wrapper registered (a kit
+    // input's own commit), the same name on the object the accessor now reaches (a page's notify
+    // built from the accessor, or the moved-in row's verdict), or no row field at all (a notify of
+    // the list). The field filter answers the first and the name test the second; the third
+    // reaches the wrappers as the form starts and stops checking around the check that notify
+    // starts, both form-level changes. An accessor re-pointed at another member name is the one
+    // shape the name test misses: only a form-level change or the page's own render reaches it.
     private bool ShouldRenderFor(FormidableStateChangedEventArgs e)
     {
-        if (_verifyRowKeys || _reportStaleRegistrations)
+        if (ObservedField is not { } field)
+        {
+            return e.Everything || e.FormChanged || e.ChangedFields!.Count > 0;
+        }
+
+        if (e.Includes(field))
         {
             return true;
         }
 
-        return ObservedField is { } field
-            ? e.Includes(field)
-            : e.Everything || e.FormChanged || e.ChangedFields!.Count > 0;
+        if (!ChecksRowKeys || !RenderReSetsKitChildren)
+        {
+            return false;
+        }
+
+        return e.FormChanged || NamesFieldName(e.ChangedFields!, field.FieldName);
+    }
+
+    /// <summary>Whether <paramref name="changed"/> holds a field named <paramref name="fieldName"/>.</summary>
+    /// <param name="changed">The fields a publish names.</param>
+    /// <param name="fieldName">The wrapper's own field name.</param>
+    /// <returns><see langword="true"/> when any field in <paramref name="changed"/> carries the name.</returns>
+    // Called once the publish is known not to name the wrapper's own field, and a field identifier
+    // is its owner instance plus its name, so a match here is always the name on another owner.
+    private static bool NamesFieldName(IReadOnlySet<FieldIdentifier> changed, string fieldName)
+    {
+        foreach (var candidate in changed)
+        {
+            if (string.Equals(candidate.FieldName, fieldName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Runs <see cref="DisposeCore"/>, then releases the field registration and the engine subscription, whether or not <see cref="DisposeCore"/> threw.</summary>

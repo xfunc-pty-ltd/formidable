@@ -473,7 +473,7 @@ where `min` and `max` splat through `AdditionalAttributes` untouched.
 | `OnParametersSet` is where the field resolves, registers, and binds the engine subscription | Call `base` from any override, or the control registers nothing and never re-renders as checks start and finish. |
 | `OnAfterRender` is where the row-key checks judge what the last parameter set found | Call `base` from any override of the synchronous `OnAfterRender`, or `VerifyRowKeys` and `ReportStaleRegistrations` fall silent for the control. |
 | `Dispose` is non-virtual and always releases the registration and the subscription | Override `DisposeCore` for resources of your own. A control implementing `IAsyncDisposable` has to call `Dispose()` from its `DisposeAsync`, since Blazor calls only the async overload when a component implements both. |
-| `ObservesEngineState` and `OnEngineStateChanged` are why a control re-renders as checks on its field start and finish | Leave them alone unless you mean it: `false` freezes the state class, `aria-invalid`, `aria-describedby` and `aria-required` at whatever the last render gave them. With the row-key checks off (their default), the base re-renders only for a change whose `Includes` names the control's field. Override `OnEngineStateChanged` and call `base` to keep that field-scoped re-render, or call `StateHasChanged` yourself for a control that must redraw on every change. |
+| `ObservesEngineState` and `OnEngineStateChanged` are why a control re-renders as checks on its field start and finish | Leave them alone unless you mean it: `false` freezes the state class, `aria-invalid`, `aria-describedby` and `aria-required` at whatever the last render gave them. The base re-renders only for a change whose `Includes` names the control's field, with the row-key checks on or off. Override `OnEngineStateChanged` and call `base` to keep that field-scoped re-render, or call `StateHasChanged` yourself for a control that must redraw on every change. Kit components rendered inside your control's own markup are judged by the row-key checks when your control renders (which the base does for its field's changes) and when its parent renders. To judge them at form-wide changes too, override `OnEngineStateChanged`, call `base`, and call `InvokeAsync(StateHasChanged)` when `FormChanged` is set and `Context.Engine.Options` has either check on. |
 
 One more seam serves a control whose native element can display text it reports as empty, a number
 box holding `e3` being the kit's own case. No render-tree diff can overwrite that, because the
@@ -1226,8 +1226,10 @@ and unsubscribe on dispose.
 handler redraws on every change where yours tests `Includes` first.
 
 > [!NOTE]
-> While `VerifyRowKeys` or `ReportStaleRegistrations` is on, a `FormidableField` renders on every
-> change, so the checks can judge the accessors of the components inside it after each one.
+> While `VerifyRowKeys` or `ReportStaleRegistrations` is on, a `FormidableField` also renders for any
+> form-wide change (the form starting or stopping checking, say) and for a change to a field of its
+> own name on another object. Each of those renders lets the checks judge the accessors of the
+> components inside it again.
 
 | Parameter | Type | Default | One line |
 |---|---|---|---|
