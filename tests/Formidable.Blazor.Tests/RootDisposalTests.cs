@@ -114,9 +114,9 @@ public class RootDisposalTests : BunitContext
     // Mirrors the validator's test of the same name, under the same late-call contract and
     // asserted against it the same way. The form keeps the engine it disposed, so this also
     // reads that nothing reaches it: a late reply writes nothing into its store, a late reset
-    // builds no engine, and a late load marks nothing. The form runs a submit before it goes,
-    // which is what makes a late submit or load that reaches the disposed engine throw
-    // ObjectDisposedException.
+    // builds no engine, and a late load marks nothing. The form runs a submit before it goes.
+    // A late submit or load that reaches the disposed engine throws ObjectDisposedException
+    // whether or not a check ran before it.
     // Mutation: drop the disposed return from any one member, and that member's line fails: the
     // late submit throws ObjectDisposedException, the reset builds a new engine, the focus move
     // asks the focus service for a field, a reply lands in the disposed engine's store, and the

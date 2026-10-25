@@ -2088,12 +2088,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // begins (a model whose Normalize throws, say) leaves it where it was.
     internal int SubmitChecksBegun { get; private set; }
 
-    /// <summary>Supersedes any pass in flight, moves the engine's version and records the new pass as current; a submit or load first records the check it cancels.</summary>
+    /// <summary>Records the new pass as current under a moved version, which supersedes any pass in flight, and hands back the previous pass's token source for the caller to cancel; a submit or load first records the check it cancels.</summary>
     /// <param name="kind">The new pass's kind.</param>
     /// <param name="external">The caller's token, linked into the pass's own; <see cref="CancellationToken.None"/> for a live or refresh pass.</param>
+    /// <param name="previous">The token source of the pass recorded before this one, or <see langword="null"/> before the first; the caller cancels and disposes it.</param>
     /// <returns>The new pass's descriptor.</returns>
-    private PassScope BeginPass(PassKind kind, CancellationToken external)
+    /// <exception cref="ObjectDisposedException">The engine is disposed.</exception>
+    // Cancelling is left to RunPassAsync, inside the try whose finally ends this pass, because
+    // Cancel can throw after this pass is recorded (see the cancel there).
+    private PassScope BeginPass(PassKind kind, CancellationToken external, out CancellationTokenSource? previous)
     {
+        // A disposed engine starts no pass. Past this test a call would put a live token source
+        // where Dispose left a disposed one, so it, or the call after it, would run a whole pass.
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         if (kind == PassKind.Submit)
         {
             SubmitChecksBegun++;
@@ -2104,8 +2112,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             RecordDisplaced(kind);
         }
 
-        _passCts?.Cancel();
-        _passCts?.Dispose();
+        previous = _passCts;
         _passCts = CancellationTokenSource.CreateLinkedTokenSource(external);
         _version++;
         var pass = new PassScope(kind, _version, _passCts.Token, _timeProvider.GetTimestamp(), _editStamp);
@@ -2227,7 +2234,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             _validatingScope = fields;
         });
 
-    /// <summary>Retires a pass that ended without landing (a fault or a caller's cancellation) and abandons the held coverage answer, when the pass is still current.</summary>
+    /// <summary>Retires a pass that ended without landing, whatever ended it, and abandons the held coverage answer, when the pass is still current.</summary>
     /// <param name="pass">The pass that ended.</param>
     /// <param name="retired">Runs beside <see cref="EndPass"/> when the pass was still current, before the notifications, so a handler that throws cannot hide that the pass ended.</param>
     // Retraction is immediate rather than bound-delayed: EndPass moves the coverage version out
@@ -2286,17 +2293,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // before the begin records this pass in their place (see CarryCancelledFields).
         var superseded = _currentPass;
         var supersededFields = _currentPassScope;
-        var pass = BeginPass(kind, external);
-
-        // Captured synchronously with the begin, on the caller's own context, before anything
-        // here awaits: the stamp names the model state this pass's verdicts will answer for —
-        // recording it any later would let a verdict claim an edit the validation never saw —
-        // and the generation names the rendered field set they are computed against, which is
-        // what the verdict apply below checks before it writes the store. The departure count is
-        // read with them, for the landing's test against a server answer.
-        var editStamp = _editStamp;
-        var generation = _verdictStore.Generation;
-        var departures = _departures;
+        var pass = BeginPass(kind, external, out var previous);
 
         // Whether this pass ended as the current one, landed or not, which is what owes the fires
         // that deferred to it their arm (see ArmDeferredFires). A superseded pass's end owes
@@ -2313,6 +2310,32 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         try
         {
+            // The previous pass's token is cancelled here, after this pass is recorded, as Dispose
+            // does it. Cancelling can run the superseded pass's end at once: a rule waiting with
+            // WaitAsync(ct) resumes inside Cancel, and with no synchronization context (a
+            // WebAssembly host) the rest of that pass runs inline behind it. That end must find
+            // this pass in its place, so it writes no state, raises no StateChanged, gives nothing
+            // back and arms nothing. Cancel throws once every callback has run if one of them threw
+            // (a rule's own registration on its token), and the finally below then ends this pass.
+            try
+            {
+                previous?.Cancel();
+            }
+            finally
+            {
+                previous?.Dispose();
+            }
+
+            // Captured synchronously with the begin, on the caller's own context, before anything
+            // here awaits: the stamp names the model state this pass's verdicts will answer for —
+            // recording it any later would let a verdict claim an edit the validation never saw —
+            // and the generation names the rendered field set they are computed against, which is
+            // what the verdict apply below checks before it writes the store. The departure count
+            // is read with them, for the landing's test against a server answer.
+            var editStamp = _editStamp;
+            var generation = _verdictStore.Generation;
+            var departures = _departures;
+
             var scope = beginScope();
             if (superseded is { } cancelledPass
                 && supersededFields is { Count: > 0 }
@@ -2519,10 +2542,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // dispatch has landed and ended the pass itself. It reaches one step further back than
             // a per-kind hand-roll needs to: the start notification is inside the try as well, so
             // a subscriber throwing from there leaves the flag cleared and costs one extra round,
-            // rather than leaving it stuck on.
+            // rather than leaving it stuck on. A pass that threw before its start notification ran
+            // (the cancel above, or its scope) has not raised the flag, and while it is current the
+            // flag reads true only if the pass it superseded was still validating, so the
+            // descriptor is tested too. The end below still runs only while the pass is current.
             try
             {
-                if (IsValidating)
+                if (IsValidating || _currentPass?.Version == pass.Version)
                 {
                     await EndPassWithoutLandingAsync(pass, () =>
                     {
@@ -3843,6 +3869,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <inheritdoc />
     /// <param name="cancellationToken">Cancels the check.</param>
+    /// <exception cref="ObjectDisposedException">The engine was disposed; the returned task faults with it. The model is still normalized under <see cref="FormidableOptions.NormalizeOnSubmit"/> before it does, and no rule runs.</exception>
     /// <returns>The outcome; a pass a newer submit or load, or the engine's disposal, displaced reports blocked with an empty summary, its report empty when the validator honoured the cancellation and its own otherwise, as does a submit edited during each of its three checks whose last check found no error, with that check's report; a check a rule failure ended reports blocked with the exception as <see cref="SubmitOutcome.Fault"/>, unless a newer submit or load had taken its place, and then as a displaced submit does.</returns>
     public async Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default)
     {
@@ -4310,6 +4337,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <inheritdoc />
     /// <param name="cancellationToken">Cancels the load.</param>
+    /// <exception cref="ObjectDisposedException">The engine was disposed; the returned task faults with it. The call still moves the edit stamp and drops the held submit-coverage answer before it does, and no rule runs.</exception>
     /// <returns>Completes when the load pass and the live pass that follows it, while anything is engaged, have ended.</returns>
     public async Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default)
     {
@@ -4400,8 +4428,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // happens next, or by Dispose, after which nothing does. A cancelled load never
                 // gets here: it throws first. Nor does
                 // a load whose engine was disposed after it landed: the landing and this dispatch
-                // are separate turns, and a live pass begun on a disposed engine would cancel a
-                // token source Dispose already disposed, as every arm site's own stand-down says.
+                // are separate turns, and a live pass begun on a disposed engine would throw
+                // ObjectDisposedException, as every arm site's own stand-down says.
                 await RunLivePassAsync(adopted);
             }
         }).ConfigureAwait(false);
@@ -5074,8 +5102,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         if (_disposed)
         {
             // A dispatched fire can still run after the owning component went away; there is
-            // nothing left here to validate against, and BeginPass would cancel a _passCts that
-            // Dispose already disposed.
+            // nothing left here to validate against, and BeginPass would throw
+            // ObjectDisposedException.
             return;
         }
 
@@ -5184,7 +5212,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }).ConfigureAwait(false);
     }
 
-    /// <summary>Unsubscribes from the edit context, stops every timer, supersedes the pass and cancels any probe in flight, clears the message store and notifies once; later calls do nothing.</summary>
+    /// <summary>Unsubscribes from the edit context, stops every timer, supersedes the pass and cancels any probe in flight, clears the message store and notifies once; later calls to <c>Dispose</c> do nothing.</summary>
     public void Dispose()
     {
         if (_disposed)

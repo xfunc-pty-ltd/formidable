@@ -542,8 +542,8 @@ the same held answer can be re-served for another bound per edit, the edited fie
 throughout.
 
 **What drops the hold** is `Abandon`, reached from three places. A current pass ending without
-landing calls it: a fault of any kind, or a caller's cancellation of a submit or a load, the only
-two kinds that carry an external token.
+landing calls it, whatever ended it. A fault of any kind, a caller's cancellation of a submit or a
+load, and a throw as the pass began are among those ends. Only a submit and a load carry an external token.
 
 The running validity probe calls it when it faults or is cancelled, and publishes a notification
 round, as a pass ending without landing does. The opening of `DiscloseLoadedValuesAsync` calls it
@@ -558,10 +558,15 @@ next coverage read recomputes rather than standing on a cache that predates the 
 
 ## Supersession and deferral
 
-Only one pass is in flight at a time. Starting a new pass cancels the one before it, moves the
-engine's version, and takes over the descriptor that names the current pass. The older pass's
-answer, if it arrives at all, is discarded: every write a pass makes is gated on its version
-still being the engine's own.
+Only one pass is in flight at a time. Starting a new pass moves the engine's version, takes over
+the descriptor that names the current pass, and then cancels the older pass's token. The order
+matters because cancelling can run the older pass's end at once, and that end must find a newer
+pass already in place.
+
+The older pass's answer, if it arrives at all, is discarded: every write a pass makes is gated on
+its version still being the engine's own. If the cancel throws (a callback a rule registered on
+its token threw), the newer pass ends without landing. A submit's or a load's caller gets the
+throw, and a pass the engine started itself hands it to the form's boundary.
 
 The engine calls this supersession, and the newer pass supersedes the older. On screen it is the
 reason you only ever see the answer for what you last typed ([Async validation](async-validation.md)
@@ -597,7 +602,8 @@ A rule that ignores the token the disposal cancels still answers, but its pass l
 arms nothing, so a submit reports blocked and a load discloses nothing.
 
 A load that landed just before the disposal starts no live pass after it: its tail stands down for
-a disposed engine, as every timer fire does.
+a disposed engine, as every timer fire does. A submit or a load called after the disposal throws
+`ObjectDisposedException` and starts no pass.
 
 A caller's cancellation of a submit or a load holds even under a rule that ignores the token. The
 verdict dispatch reads the caller's token before anything lands, so the pass ends without landing,
@@ -878,7 +884,7 @@ kept holds.
 
 The first answered submit, or `ApplyServerIssues`, sets `HasSubmitted`, and the store rebuild that
 follows that write discloses the verdict with no pass of its own. A submit that ends without landing
-never sets it, so the hold stands: one superseded, cancelled or faulted, and one whose restarts were
+never sets it, whatever ended it, so the hold stands. That includes a submit whose restarts were
 spent on a passing answer an edit outdated.
 
 The registry keeps one entry per field: how many registrations stand, how many of them hold, and
