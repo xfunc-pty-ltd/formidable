@@ -575,8 +575,6 @@ public class WorkoutShapedRenderCeilingTests : BunitContext
                 .Must(a => a.Count > 0)
                 .WithSeverity(Severity.Info)
                 .WithMessage("You can add attendees now or after registering");
-
-            RuleFor(r => r.DietaryNotes).NotEmpty().WithMessage("Dietary notes are required");
         }
 
         protected override void ConfigureSubmitRules()
@@ -586,6 +584,7 @@ public class WorkoutShapedRenderCeilingTests : BunitContext
             RuleFor(r => r.EventDate).NotEmpty().WithMessage("Event date is required");
             RuleFor(r => r.TicketTier).NotEmpty().WithMessage("Ticket tier is required");
             RuleFor(r => r.VenueRegion).NotEmpty().WithMessage("Venue region is required");
+            RuleFor(r => r.DietaryNotes).NotEmpty().WithMessage("Dietary notes are required");
 
             RuleForEach(r => r.Attendees).ChildRules(attendee =>
             {

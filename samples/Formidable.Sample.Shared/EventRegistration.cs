@@ -122,11 +122,6 @@ public class EventRegistrationValidator : DraftSubmitValidator<EventRegistration
             .Must(a => a.Count > 0)
             .WithSeverity(Severity.Info)
             .WithMessage("You can add attendees now or after registering");
-
-        // Deliberately unconditional: the UI alone gates this field's visibility, so the rule
-        // stays registered whether or not catering is selected - the one shape that exercises
-        // disclosure suppression and its defensive gate.
-        RuleFor(r => r.DietaryNotes).NotEmpty().WithMessage("Dietary notes are required");
     }
 
     protected override void ConfigureSubmitRules()
@@ -137,6 +132,11 @@ public class EventRegistrationValidator : DraftSubmitValidator<EventRegistration
         RuleFor(r => r.EventDate).NotEmpty().WithMessage("Event date is required");
         RuleFor(r => r.TicketTier).NotEmpty().WithMessage("Ticket tier is required");
         RuleFor(r => r.VenueRegion).NotEmpty().WithMessage("Venue region is required");
+
+        // Deliberately unconditional: the UI alone gates this field's visibility, so the rule
+        // stays registered whether or not catering is selected - the one shape that exercises
+        // disclosure suppression and its defensive gate.
+        RuleFor(r => r.DietaryNotes).NotEmpty().WithMessage("Dietary notes are required");
 
         RuleForEach(r => r.Attendees).ChildRules(attendee =>
         {

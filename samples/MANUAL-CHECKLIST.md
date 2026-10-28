@@ -746,8 +746,9 @@ The tour:
       rest read "Catering: hidden fields", "Attendees: a warning", "Sessions: a long list",
       "Ticket tier: a plain select" and "Venue region: Blazor's own input". All read as small
       group titles in both colour schemes
-- [ ] **Save draft (step 1):** the status line names Dietary notes alone, though four other
-      required boxes are empty
+- [ ] **Save draft (step 1):** with `nope@` in Contact email, the status line names the address's
+      format alone, though the required boxes are still empty. Clear the box and save again: the
+      draft saves, though "Contact email is required" now shows under it
 - [ ] **Save and load a draft (steps 2 and 3), in both colour schemes:** after the reload, the
       boxes you filled are empty, with no borders. *Load saved draft* brings Dietary notes and
       Event name back with green borders, and Ticket tier and the top session seats turn green
@@ -855,8 +856,7 @@ The full set:
       focus lands on **Include catering** instead. That is the checkbox whose state is the
       reason the field is gone. Re-tick and fill in a note before moving on
 - [ ] `nope@` in Contact email, then *Save draft* (a draft save, as in the tour's step 1). The
-      draft checks the draft rules only, and the malformed address is what it names, since the
-      note is back in
+      draft checks the draft rules only, and the malformed address is what it names
 - [ ] Now clear **Event name** and press Tab. "Event name is required" lands as soon as that
       edit's check answers, because you changed that field. Save the draft again, and the
       status line still never mentions it. A draft save runs the Draft profile, and that

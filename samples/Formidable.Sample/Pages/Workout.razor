@@ -20,7 +20,7 @@
         }
         <h3>Save draft: the draft rules</h3>
         <ol>
-            <li>Click <strong>Save draft</strong> with nothing filled in.<div class="teaching__result"><span class="teaching__label">You see:</span> "Draft blocked: Dietary notes are required" in the status line under the buttons.</div><div class="teaching__why"><span class="teaching__label">Why:</span> A draft save skips required rules, except the one on <strong>Dietary notes</strong>.</div><div class="teaching__page">More on <a href="profiles">Draft vs Submit</a>.</div></li>
+            <li>Type <code>nope@@</code> into <strong>Contact email</strong> and click <strong>Save draft</strong>, then clear the box and click <strong>Save draft</strong> again.<div class="teaching__result"><span class="teaching__label">You see:</span> "Draft blocked: Contact email must be a valid email address" in the status line under the buttons, then "Draft saved — no blocking issues.", though "Contact email is required" now shows under the empty box.</div><div class="teaching__why"><span class="teaching__label">Why:</span> A draft save checks only the draft rules, which judge the values you have typed. Required rules are submit rules, so a required message never blocks a draft, even while it is showing.</div><div class="teaching__page">More on <a href="profiles">Draft vs Submit</a>.</div></li>
         </ol>
         <h3>Save and load a draft</h3>
         <ol start="2">
@@ -68,7 +68,7 @@
             <li><strong>Description</strong>: optional, with no rules.</li>
             <li><strong>Coupon code</strong>: optional; no rule in the browser, and the server accepts only codes it knows.</li>
             <li><strong>Catering headcount</strong>: optional; a whole number from 1 to 500 while catering is included, even in a draft.</li>
-            <li><strong>Dietary notes</strong>: required, even in a draft and even while hidden.</li>
+            <li><strong>Dietary notes</strong>: required to submit, even while hidden.</li>
             <li><strong>Attendees</strong>: more than 10 draws a warning and none draws an info message; neither blocks.</li>
             <li><strong>Name</strong> (each attendee): required to submit.</li>
             <li><strong>Email</strong> (each attendee): optional; to submit, a valid address if filled in.</li>
@@ -83,7 +83,6 @@
         <p>A draft that nothing blocks is also kept in this browser, so it outlives a reload. <strong>Load saved draft</strong> calls the form's <code>ResetAsync()</code>, puts the saved values back, then calls <code>DiscloseLoadedValuesAsync()</code> to ask what they have earned. The <a href="draft-load">Loading a saved draft</a> page shows that call on its own.</p>
         <p>Each box that has a rule and holds a value counts as one you changed: a passing value turns green, and a failing one shows its message. Boxes the draft leaves empty stay quiet, and anything you had typed or submitted before the load is replaced by the draft.</p>
         <p>The validator splits its rules in two. The draft rules (the rules a draft save checks, which a submit checks too) hold most formats and ranges, the availability check (whether the address is already registered) and the two rules on the number of attendees. The submit rules hold the required rules and each attendee's email format.</p>
-        <p><strong>Dietary notes</strong> is the one exception: its required rule is a draft rule, so a draft save answers about it as well.</p>
         <p>That split decides what a save or a submit checks, not when a message appears. Type <code>nope@@</code> into <strong>Contact email</strong> and clear <strong>Event name</strong>, and each shows its message with no submit. <strong>Save draft</strong> then names the address but not <strong>Event name</strong>, because the rule that requires <strong>Event name</strong> is not a draft rule.</p>
         <h3>When a message appears</h3>
         <p>As you edit, the form checks what a submit would, and shows messages only for the fields you have changed. Until a submit, a field you have not changed stays quiet however badly its rule fails. Type into it or clear it, and it answers with no submit.</p>

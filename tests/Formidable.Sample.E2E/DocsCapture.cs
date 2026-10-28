@@ -132,7 +132,7 @@ public sealed class DocsCapture(SampleAppFixture app)
 
     // Stages the workout page the hero shots want: a realistic conference registration with
     // every required field answered but one, an eleven-attendee list past the Warning-severity
-    // threshold, and Dietary notes left blank — its rule is unconditional (ConfigureDraftRules),
+    // threshold, and Dietary notes left blank — its rule is unconditional (ConfigureSubmitRules),
     // so it is the cheapest single field that keeps one error and the summary's error band alive
     // once everything else clears. Kept separate from SubmitEmptyRegistrationAsync, which
     // Social_preview still uses unchanged for its own all-red empty-submit crop: the two shots

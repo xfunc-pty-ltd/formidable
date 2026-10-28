@@ -25,6 +25,7 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     private const string AttendeeNameRequired = "Attendee name is required";
     private const string TooManyAttendees = "More than 10 attendees needs approval — submission is not blocked";
     private const string DietaryNotesRequired = "Dietary notes are required";
+    private const string ContactEmailRequired = "Contact email is required";
     private const string HiddenIssueGate = "The form cannot be submitted because information that is not currently displayed is invalid.";
     private const string CouponRejected = "Coupon code is not recognised";
     private const string SeatsOutOfRange = "Seats must be a whole number between 0 and 500";
@@ -34,11 +35,13 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
 
     // The page's own status lines for a draft save and a draft load, and the one storage entry the
     // save writes, read and removed by name the way a visitor looking at the site's data would.
-    // The blocked save is the empty form's: Dietary notes is the one box a draft requires.
-    private const string DraftBlocked = "Draft blocked: Dietary notes are required";
+    // The blocked save is a malformed address's: required rules are submit rules, so a
+    // required message never blocks a draft.
+    private const string DraftBlocked = "Draft blocked: Contact email must be a valid email address";
     private const string DraftSaved = "Draft saved — no blocking issues.";
     private const string DraftLoaded = "Loaded the saved draft.";
     private const string NoSavedDraft = "No saved draft yet.";
+    private const string UnreadableDraft = "The saved draft could not be read.";
     private const string ReadSavedDraft = "localStorage.getItem('formidable.workout-draft')";
     private const string ForgetSavedDraft = "localStorage.removeItem('formidable.workout-draft')";
     private const string EmailTaken = "That email is already registered";
@@ -537,15 +540,28 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await page.EvaluateAsync(ForgetSavedDraft);
 
         // A blocked save writes nothing. The status line is written once the save has decided, so
-        // the storage read after it reads the decision's outcome.
+        // the storage read after it reads the decision's outcome. The malformed address breaks a
+        // draft rule; the required rules beside it are submit rules, which a draft save skips.
+        await contactEmail.FillAsync("nope@");
         await SaveDraftAsync(page);
         await Expect(status).ToHaveTextAsync(DraftBlocked, new() { Timeout = AsyncTimeoutMs });
         Assert.Null(await page.EvaluateAsync<string?>(ReadSavedDraft));
 
-        // Dietary notes is the one box a draft save requires, so with it filled the save goes
-        // through. Description has no rule at all. A session's seats and an attendee row ride
-        // along, the two lists a load writes back. Every other box stays empty, for the load to
-        // keep quiet about.
+        // Cleared, the box shows its required message, because the form checks a submit's rules
+        // as you edit. A draft save still goes through, since every required rule is a submit
+        // rule. That empty draft is forgotten again, so the wait after the next save can read
+        // storage instead of a status line that already says saved.
+        await contactEmail.FillAsync(string.Empty);
+        await Expect(MessagesFor(page, "contactemail"))
+            .ToHaveTextAsync([ContactEmailRequired], new() { Timeout = AsyncTimeoutMs });
+        await SaveDraftAsync(page);
+        await Expect(status).ToHaveTextAsync(DraftSaved, new() { Timeout = AsyncTimeoutMs });
+        Assert.NotNull(await page.EvaluateAsync<string?>(ReadSavedDraft));
+        await page.EvaluateAsync(ForgetSavedDraft);
+
+        // The draft the load reads back. Description has no rule at all. A session's seats and an
+        // attendee row ride along, the two lists a load writes back. Every other box stays empty,
+        // for the load to keep quiet about.
         await dietaryNotes.FillAsync("No nuts");
         await eventName.FillAsync("Dev Summit");
         await contactEmail.FillAsync("ada@example.com");
@@ -554,7 +570,10 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await AddAttendeeAsync(page);
         await attendeeName.FillAsync("Ada Lovelace");
         await SaveDraftAsync(page);
-        await Expect(status).ToHaveTextAsync(DraftSaved, new() { Timeout = AsyncTimeoutMs });
+
+        // The status line already reads the saved text from the save above, so it cannot say this
+        // save has finished. The storage entry can, and the reload below needs it to be there.
+        await page.WaitForFunctionAsync(ReadSavedDraft, null, new() { Timeout = AsyncTimeoutMs });
 
         // The reload boots the app afresh, so the form opens as a first visit does: nothing typed
         // comes back by itself, and nothing wears a border. The first read waits out the boot.
@@ -638,6 +657,88 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await Expect(eventName).ToHaveValueAsync(string.Empty);
         await Expect(eventName).Not.ToHaveClassAsync(AnyStateClass);
         await Expect(ticketTier).Not.ToHaveClassAsync(AnyStateClass);
+    }
+
+    // The load waits on the availability check of a saved address, which takes about 300 ms after
+    // a reload. A visitor who clicks into another box during that wait keeps focus there: the page
+    // puts focus back on Load saved draft only when nothing else holds it. The focus move follows
+    // the click within a few milliseconds, well inside the wait, and a slow run could only make it
+    // land after the load, where focus is the box's anyway, so the check cannot fail by timing.
+    [E2EFact]
+    public async Task A_box_focused_during_the_load_keeps_focus()
+    {
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
+        var status = page.Locator("p[role='status']");
+        var contactEmail = TextBox(page, "Contact email");
+        var description = TextBox(page, "Description");
+
+        await page.EvaluateAsync(ForgetSavedDraft);
+        await contactEmail.FillAsync("ada@example.com");
+        await SaveDraftAsync(page);
+        await Expect(status).ToHaveTextAsync(DraftSaved, new() { Timeout = AsyncTimeoutMs });
+
+        await page.ReloadAsync();
+        await Expect(contactEmail).ToHaveValueAsync(string.Empty, new() { Timeout = AsyncTimeoutMs });
+
+        await LoadSavedDraftAsync(page);
+        await description.FocusAsync();
+        await Expect(status).ToHaveTextAsync(DraftLoaded, new() { Timeout = AsyncTimeoutMs });
+        await Expect(contactEmail).ToHaveValueAsync("ada@example.com");
+
+        await Expect(description).ToBeFocusedAsync();
+        await Expect(page.GetByRole(AriaRole.Button, new() { Name = "Load saved draft", Exact = true }))
+            .Not.ToBeFocusedAsync();
+    }
+
+    // A draft that parses but cannot be loaded: a list or a text value stored as null, a null entry
+    // in a list, and two sessions sharing an Id. Each is reported as unreadable and the form stays
+    // as the visitor left it, with its typed values and the message showing. The reset would have
+    // cleared that message, and a load that reset first and then threw would have written the
+    // draft's values over the typed ones.
+    [E2EFact]
+    public async Task A_draft_that_parses_but_cannot_be_loaded_leaves_the_form_as_it_was()
+    {
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
+        var status = page.Locator("p[role='status']");
+        var contactEmail = TextBox(page, "Contact email");
+        var eventName = TextBox(page, "Event name");
+
+        await eventName.FillAsync("Dev Summit");
+        await AddAttendeeAsync(page);
+        await contactEmail.FillAsync("nope@@");
+        await Expect(MessagesFor(page, "contactemail"))
+            .ToHaveTextAsync(["Contact email must be a valid email address"], new() { Timeout = AsyncTimeoutMs });
+
+        var drafts = new[]
+        {
+            "{\"ContactEmail\":\"ada@example.com\",\"Attendees\":null}",
+            "{\"ContactEmail\":\"ada@example.com\",\"Sessions\":null}",
+            "{\"ContactEmail\":\"ada@example.com\",\"Sessions\":[{\"Id\":1,\"Seats\":\"1\"},{\"Id\":1,\"Seats\":\"2\"}]}",
+            "{\"ContactEmail\":\"ada@example.com\",\"Description\":null}",
+            "{\"ContactEmail\":\"ada@example.com\",\"Attendees\":[null]}",
+            "{\"ContactEmail\":\"ada@example.com\",\"Sessions\":[null]}",
+        };
+
+        foreach (var draft in drafts)
+        {
+            // The malformed address blocks a save, and the blocked text moves the status line off
+            // the previous load's report, so each report is seen to arrive. Nothing is written by
+            // the blocked save; the hand edit goes into storage after it.
+            await SaveDraftAsync(page);
+            await Expect(status).ToHaveTextAsync(DraftBlocked, new() { Timeout = AsyncTimeoutMs });
+            await page.EvaluateAsync("d => localStorage.setItem('formidable.workout-draft', d)", draft);
+
+            await LoadSavedDraftAsync(page);
+            await Expect(status).ToHaveTextAsync(UnreadableDraft, new() { Timeout = AsyncTimeoutMs });
+
+            await Expect(contactEmail).ToHaveValueAsync("nope@@");
+            await Expect(eventName).ToHaveValueAsync("Dev Summit");
+            await Expect(page.Locator(".member-list li")).ToHaveCountAsync(1);
+            await Expect(MessagesFor(page, "contactemail"))
+                .ToHaveTextAsync(["Contact email must be a valid email address"]);
+        }
     }
 
     // Everything the Submit profile asks for, with the two fields the individual tests vary left to
