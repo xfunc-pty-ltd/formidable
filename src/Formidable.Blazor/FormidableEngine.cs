@@ -76,11 +76,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // makes are taken on the caller's context or on the dispatcher.
     //
     // IsFormValid has its own gate: _formValidityStamp moves synchronously on the caller's
-    // context as a probe starts, and IsFormValid is written on the dispatcher only while that
-    // stamp is still current, the last-write-wins shape _version gives the sources. A landing
-    // moves the stamp and writes IsFormValid on the dispatcher only while no edit has arrived
-    // since its pass began (AdoptFormValidity). _lastProbeEditStamp and _probeOut move beside the
-    // probe's own stamp, _probeOut also on the dispatcher as that probe exits (EndProbe);
+    // context as a probe starts, and a probe writes IsFormValid on the dispatcher only while that
+    // stamp is still current, the last-write-wins shape _version gives the sources, and no edit
+    // has arrived since it began. A landing moves the stamp and writes IsFormValid on the
+    // dispatcher only while no edit has arrived since its pass began (AdoptFormValidity).
+    // _lastProbeEditStamp and _probeOut move beside the probe's own stamp, _probeOut also on the
+    // dispatcher as that probe exits (EndProbe);
     // _lastSubmitLiveEditStamp as a live check that runs the submit profile begins, and as a
     // submit's or a load's begin cancels one (RecordDisplaced), on whichever context that begin
     // runs;
@@ -3087,7 +3088,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }).ConfigureAwait(false);
     }
 
-    /// <summary>Evaluates the submit profile as a standalone probe for <see cref="FormidableOptions.TrackFormValidity"/>, writing <see cref="IsFormValid"/> only when it flips, only while this probe is the latest, and only while tracking is still on as it lands.</summary>
+    /// <summary>Evaluates the submit profile as a standalone probe for <see cref="FormidableOptions.TrackFormValidity"/>, writing <see cref="IsFormValid"/> only when it flips, only while this probe is the latest and no edit has arrived since it began, and only while tracking is still on as it lands.</summary>
     /// <param name="validityCheckRun">The number of the validity timer's fire that started this probe, which its exits end the running check under; zero for every other probe.</param>
     /// <remarks>
     /// Not a pass: it never calls <see cref="BeginPass"/>, discloses nothing, touches no
@@ -3172,7 +3173,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             {
                 // The landing is a fired check's last exit: what it files below is the answer the
                 // hold was waiting for. A filing refused because an edit arrived meanwhile needs no
-                // promise from here, since that edit armed a check of its own.
+                // promise from here, since that edit armed a check of its own, unless LiveDebounce
+                // and RefreshDebounce both never pass: then an edit arms nothing.
                 EndValidityCheck(validityCheckRun);
 
                 // The probe's stricter write gate is the store's four-argument overload:
@@ -3204,7 +3206,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
                     // The option is read as the probe lands, so a page that turned tracking off
                     // while it ran keeps IsFormValid's last answer (AdoptFormValidity says why).
-                    if (_options.TrackFormValidity)
+                    // An answer an edit has outdated writes nothing, as a landing's does. The
+                    // stamp alone cannot refuse it: on the default profiles the edit's own live
+                    // check takes no stamp as it starts, and inside a LiveDebounce window no
+                    // check has started for the edit yet. That edit armed a check of its own,
+                    // which answers IsFormValid in this one's place, unless LiveDebounce and
+                    // RefreshDebounce both never pass: then an edit arms nothing that answers it.
+                    if (_options.TrackFormValidity && editStamp == _editStamp)
                     {
                         SetFormValidity(report.IsValid);
                     }

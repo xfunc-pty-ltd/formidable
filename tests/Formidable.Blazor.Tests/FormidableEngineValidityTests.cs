@@ -244,6 +244,66 @@ public class FormidableEngineValidityTests
         Assert.False(engine.IsFormValid);
     }
 
+    // The check every tracked form runs as it is built is still waiting on its async rule when an
+    // edit empties the required description, and it lands first, with an answer for the model
+    // before the edit. On the default profiles no validity check starts beside the edit's live
+    // check, so nothing newer has started a validity check of its own, and only the edit says the
+    // answer is old. That answer writes nothing: IsFormValid never reads true for the emptied
+    // model, with no LiveDebounce (the edit's live check is already waiting) or inside a window
+    // (no check has started for the edit yet). Mutation: let a validity check's landing write
+    // IsFormValid whatever edit came after it began, and both rows read true once it lands.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(200)]
+    public async Task A_validity_answer_an_edit_outdated_never_sets_IsFormValid(int liveDebounceMs)
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var editContext = new EditContext(order);
+        var validator = new PerRunGatedValidator();
+        var window = liveDebounceMs == 0 ? (TimeSpan?)null : TimeSpan.FromMilliseconds(liveDebounceMs);
+        var dispatch = new CountedDispatch();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { TrackFormValidity = true, LiveDebounce = window },
+            _time,
+            dispatch.Dispatch);
+        var readTrue = 0;
+        engine.StateChanged += (_, _) =>
+        {
+            if (engine.IsFormValid)
+            {
+                Interlocked.Increment(ref readTrue);
+            }
+        };
+        Assert.Equal(1, validator.Runs); // the check at build waits on run 0
+
+        order.Description = string.Empty;
+        editContext.NotifyFieldChanged(DescriptionOf(order));
+        Assert.Equal(window is null ? 2 : 1, validator.Runs); // with no window, the live check waits on run 1
+
+        var beforeLanding = dispatch.Completed;
+        validator.Release(0); // the check at build lands, older than the edit
+        await dispatch.WaitUntilAtLeastAsync(beforeLanding + 1);
+        Assert.Equal("ok", validator.Seen(0));
+        Assert.False(engine.IsFormValid);
+
+        if (window is { } open)
+        {
+            _time.Advance(open); // the window's live check starts and waits on run 1
+        }
+
+        Assert.Equal(2, validator.Runs);
+        var beforeLive = dispatch.Completed;
+        validator.Release(1); // the edit's own live check lands, then its pass ends in a dispatch of its own
+        await dispatch.WaitUntilAtLeastAsync(beforeLive + 2);
+        Assert.False(engine.IsValidating);
+        Assert.Equal(string.Empty, validator.Seen(1));
+        Assert.False(engine.IsFormValid);
+        Assert.Equal(0, Volatile.Read(ref readTrue));
+        Assert.False(await SubmitSaysAsync(engine, validator));
+    }
+
     // A submit that begins while an edit's live check runs cancels that check, which was going to
     // answer IsFormValid. Here the submit is cancelled too, and the edited field leaves the page
     // while it runs, so the live check is not run again, and under a RefreshDebounce that never

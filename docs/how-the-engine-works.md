@@ -497,10 +497,9 @@ The profile match guards both grounds: an answer about one selection of rules ne
 another. A served answer describes the model as it stood when the answer was computed until the
 pass behind it lands.
 
-`IsFormValid` lags the same way. A submit, refresh, load or submit-profile live pass that began
-before an edit never writes it, but a probe begun before the edit still can, until a later probe
-starts or a later answer is adopted; the check that answers the edit then writes the current
-answer.
+`IsFormValid` lags the same way. An answer an edit has outdated never writes it, whichever check
+computed it (a submit, a refresh, a load, a submit-profile live pass or a probe). `IsFormValid`
+keeps the answer it had until the check that answers the edit writes the current one.
 
 "On its way" (`ReAnswerOnItsWay`) means one of six things. A pass is in flight whose landing
 answers the submit selection: a submit, a refresh, a load, or a live pass whose channel resolves
@@ -1258,8 +1257,13 @@ An all-synchronous plan runs to completion before the call that started it retur
 of the probe and the pass goes first has filed everything the other would have planned, and they
 share in full.
 
-`IsFormValid` is written only when the value flips, only while the probe's stamp is the latest
-taken, and only while tracking is on as the probe lands.
+`IsFormValid` is written only when the value flips, and only while tracking is on as the probe
+lands. The probe also writes it only while its stamp is still the latest taken and no edit has
+arrived since it began.
+
+The stamp alone cannot refuse an answer an edit outdated: on the default profiles the edit's own
+live pass takes no stamp as it begins, and inside a `LiveDebounce` window nothing has begun for the
+edit yet.
 
 With tracking on, a submit, a refresh, a load or a live pass that runs the submit profile, whose
 begin stamp is still the engine's, adopts its own report's validity directly and bumps the same
