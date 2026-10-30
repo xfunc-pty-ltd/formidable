@@ -3289,17 +3289,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         _formValidityStamp++;
 
-        SetFormValidity(report.IsValid);
+        // Written with no notification of its own. Every caller is a landing's verdict apply, and
+        // the store rebuild that ends the same dispatch publishes the change beside the verdict,
+        // once the pass has ended (RunPassAsync). A publish from here would reach handlers while
+        // the pass and its fields still read checking and before the store is rebuilt.
+        _isFormValid = report.IsValid;
         return true;
     }
 
     /// <summary>Writes <see cref="IsFormValid"/> and raises <see cref="StateChanged"/> only when the value changes.</summary>
-    /// <param name="value">The answer a probe or an adoption computed.</param>
-    // Both writers recompute at their own cadence (on the default profiles every live check's
-    // landing adopts, the probe runs beside a narrowed live check, and RefreshDebounce after a
-    // change under a window that never closes), and the answer mostly comes back the same, so an
+    /// <param name="value">The answer a probe computed.</param>
+    // The probe recomputes at its own cadence and the answer mostly comes back the same, so an
     // unconditional notify would publish a render round for a value nothing on the page could
-    // tell from the last.
+    // tell from the last. A landing's adoption publishes through the landing's own store rebuild
+    // instead (AdoptFormValidity).
     private void SetFormValidity(bool value)
     {
         if (value != _isFormValid)

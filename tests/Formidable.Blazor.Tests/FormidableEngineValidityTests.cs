@@ -304,6 +304,80 @@ public class FormidableEngineValidityTests
         Assert.False(await SubmitSaysAsync(engine, validator));
     }
 
+    // A landing that flips IsFormValid publishes once, as one that leaves it alone does: after the
+    // pass has ended and the message store holds the new verdict, so no handler sees the field
+    // still checking beside its new message. A live check and a submit, each waiting on the async
+    // rule as the subscription starts. Mutation: raise StateChanged as the landing adopts its
+    // answer, and each row sees two publishes, the first with the pass and the field still
+    // checking and the store not yet rebuilt.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_landing_that_flips_IsFormValid_publishes_once_after_its_pass_ends(bool submit)
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Description = "ok", Customer = customer };
+        var editContext = new EditContext(order);
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var validator = new GatedRuleRunCountingValidator();
+        validator.Gate.SetResult();
+        var dispatch = new CountedDispatch();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions { TrackFormValidity = true }, _time,
+            dispatch.Dispatch);
+        using var registration = engine.Registry.Register(name);
+        Assert.True(engine.IsFormValid);
+
+        validator.Reset();
+        customer.Name = "far too long";
+        var submitting = submit ? engine.ValidateForSubmitAsync() : null;
+        if (!submit)
+        {
+            editContext.NotifyFieldChanged(name);
+        }
+
+        Assert.True(engine.IsValidating);
+        Assert.True(engine.IsFormValid);
+
+        var seen = new List<(bool Validating, bool FieldChecking, bool IsFormValid, bool FormChanged, string Shown, string Stored)>();
+        engine.StateChanged += (_, e) =>
+        {
+            lock (seen)
+            {
+                seen.Add((
+                    engine.IsValidating,
+                    engine.GetFieldState(name).IsValidating,
+                    engine.IsFormValid,
+                    e.FormChanged,
+                    string.Join("|", engine.GetIssues(name).Select(issue => issue.Message)),
+                    string.Join("|", editContext.GetValidationMessages(name))));
+            }
+        };
+
+        var before = dispatch.Completed;
+        validator.Gate.SetResult(); // the check lands, then its pass ends in a dispatch of its own
+        await dispatch.WaitUntilAtLeastAsync(before + 2);
+        if (submitting is not null)
+        {
+            Assert.False((await submitting).CanProceed);
+        }
+
+        List<(bool Validating, bool FieldChecking, bool IsFormValid, bool FormChanged, string Shown, string Stored)> published;
+        lock (seen)
+        {
+            published = [.. seen];
+        }
+
+        var landing = Assert.Single(published);
+        Assert.False(landing.Validating);
+        Assert.False(landing.FieldChecking);
+        Assert.False(landing.IsFormValid);
+        Assert.True(landing.FormChanged);
+        Assert.Equal(RuleRunCountingValidator.DraftMessage, landing.Shown);
+        Assert.Equal(RuleRunCountingValidator.DraftMessage, landing.Stored);
+    }
+
     // A submit that begins while an edit's live check runs cancels that check, which was going to
     // answer IsFormValid. Here the submit is cancelled too, and the edited field leaves the page
     // while it runs, so the live check is not run again, and under a RefreshDebounce that never
@@ -469,9 +543,14 @@ public class FormidableEngineValidityTests
         Assert.False(_engine.IsValidating); // no pending-indicator flip left standing
     }
 
+    // The validity check's own write, so the live channel is narrowed and a validity check runs
+    // beside each live check. On the default profiles the live check's landing answers instead,
+    // and its flip rides the landing's one publish (see
+    // A_landing_that_flips_IsFormValid_publishes_once_after_its_pass_ends).
     [Fact]
     public async Task StateChanged_fires_only_on_a_flip()
     {
+        _engine.Options.LiveProfile = ValidationProfile.Draft;
         var raised = 0;
         _engine.StateChanged += (_, _) => raised++;
 

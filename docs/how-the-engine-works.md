@@ -1242,6 +1242,9 @@ still writes `IsFormValid` from the served verdicts. A landing that moved a cove
 publishes one notification round, engine and `EditContext` both, because the valid class reads
 that coverage and no pass is there to publish for it.
 
+A check that flips `IsFormValid` also raises `StateChanged` for the flip itself, ahead of that round
+when the landing moved a coverage source.
+
 The probe's store write is refused on a stale generation and additionally when an edit arrived
 since the probe began: a probe has no version for a fresher landing to supersede it through.
 
