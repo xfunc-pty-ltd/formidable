@@ -17,17 +17,18 @@ namespace Formidable;
 public sealed partial class FluentValidationModelValidator<TModel>
     : IModelValidator<TModel>, IRuleLevelValidator<TModel>, IRuleInspectingValidator<TModel>
 {
-    private const int OverrideUnread = 0;
-    private const int NotOverridden = 1;
-    private const int Overridden = 2;
+    private const int Unread = 0;
+    private const int Absent = 1;
+    private const int Present = 2;
 
     private readonly IValidator<TModel> _validator;
 
     private SelectedRulesSnapshot? _selectedRules;
 
-    // Each one of the three override constants above; an int, so a read is never torn.
+    // Each one of the three constants above; an int, so a read is never torn.
     private int _preValidateOverride;
     private int _validateAsyncOverride;
+    private int _dependentRules;
 
     /// <summary>Wraps <paramref name="validator"/>.</summary>
     /// <param name="validator">The FluentValidation validator to adapt.</param>
@@ -58,20 +59,22 @@ public sealed partial class FluentValidationModelValidator<TModel>
     public ValidationReport Validate(TModel model, ValidationProfile profile) =>
         ToReport(_validator.Validate(model, profile));
 
-    /// <summary>Whether rules can be selected and run one set at a time: <see langword="true"/> exactly when the wrapped validator is an <see cref="AbstractValidator{T}"/> whose <see cref="AbstractValidator{T}.ClassLevelCascadeMode"/> is <see cref="CascadeMode.Continue"/> and whose class overrides neither <c>PreValidate</c> nor <c>ValidateAsync</c>.</summary>
+    /// <summary>Whether rules can be selected and run one set at a time: <see langword="true"/> exactly when the wrapped validator is an <see cref="AbstractValidator{T}"/> whose <see cref="AbstractValidator{T}.ClassLevelCascadeMode"/> is <see cref="CascadeMode.Continue"/>, whose class overrides neither <c>PreValidate</c> nor <c>ValidateAsync</c>, and none of whose own rules carries <c>DependentRules</c>.</summary>
     /// <remarks>
-    /// A class-level cascade stop lets one failing rule suppress the rules after it, which
-    /// running part of a profile cannot reproduce. FluentValidation runs <c>PreValidate</c> once
-    /// per call, and every call passes through <c>ValidateAsync</c>, so what an override of either
-    /// adds would be reported once for each set run. Any of these makes this
-    /// <see langword="false"/>, as does a hand-rolled
+    /// A class-level cascade stop lets a failing rule suppress later rules, which running part
+    /// of a profile cannot reproduce. FluentValidation runs <c>PreValidate</c> once per call, and
+    /// every call passes through <c>ValidateAsync</c>, so what an override of either adds would
+    /// be reported once for each set run. A set of rules run apart skips their
+    /// <c>DependentRules</c>.
+    /// Any of these makes this <see langword="false"/>, as does a hand-rolled
     /// <see cref="IValidator{T}"/>, which cannot list its rules. A per-rule
     /// <c>Cascade(CascadeMode.Stop)</c> does not matter.
     /// </remarks>
     public bool CanValidateByRule =>
         _validator is AbstractValidator<TModel> { ClassLevelCascadeMode: CascadeMode.Continue } abstractValidator
         && !OverridesPreValidate(abstractValidator)
-        && !OverridesValidateAsync(abstractValidator);
+        && !OverridesValidateAsync(abstractValidator)
+        && !CarriesDependentRules(abstractValidator);
 
     /// <summary>Whether the class of <paramref name="validator"/>, the wrapped validator, overrides <c>PreValidate</c>; worked out on the first ask and kept.</summary>
     /// <param name="validator">The wrapped validator.</param>
@@ -82,13 +85,13 @@ public sealed partial class FluentValidationModelValidator<TModel>
     private bool OverridesPreValidate(AbstractValidator<TModel> validator)
     {
         var known = _preValidateOverride;
-        if (known == OverrideUnread)
+        if (known == Unread)
         {
-            known = PreValidateBinding.IsOverriddenBy(validator) ? Overridden : NotOverridden;
+            known = PreValidateBinding.IsOverriddenBy(validator) ? Present : Absent;
             _preValidateOverride = known;
         }
 
-        return known == Overridden;
+        return known == Present;
     }
 
     /// <summary>Whether the class of <paramref name="validator"/>, the wrapped validator, overrides <c>ValidateAsync(ValidationContext&lt;T&gt;, CancellationToken)</c>; worked out on the first ask and kept, as <see cref="OverridesPreValidate"/> is.</summary>
@@ -99,13 +102,48 @@ public sealed partial class FluentValidationModelValidator<TModel>
     private bool OverridesValidateAsync(AbstractValidator<TModel> validator)
     {
         var known = _validateAsyncOverride;
-        if (known == OverrideUnread)
+        if (known == Unread)
         {
-            known = EntryPointOverrides<TModel>.OverridesValidateAsync(validator) ? Overridden : NotOverridden;
+            known = EntryPointOverrides<TModel>.OverridesValidateAsync(validator) ? Present : Absent;
             _validateAsyncOverride = known;
         }
 
-        return known == Overridden;
+        return known == Present;
+    }
+
+    /// <summary>Whether a rule <paramref name="validator"/>, the wrapped validator, declares for itself carries <c>DependentRules</c>; worked out on the first ask and kept, as <see cref="OverridesPreValidate"/> is.</summary>
+    /// <param name="validator">The wrapped validator.</param>
+    /// <returns><see langword="true"/> when at least one of the validator's own rules holds a dependent rule.</returns>
+    // FluentValidation asks the selector about a dependent rule in the context of the rule that
+    // carries it, and a dependent rule is never one of the validator's own rules, so
+    // RuleSetSelector refuses it and a set of rules run apart skips it. Only the validator's own
+    // rules are read: a dependent nested deeper sits under one of them, and one in a child
+    // validator, ChildRules or an Include() is asked in a child context, which the rule-level
+    // path answers as a whole run does. Kept because the capability is read at every field's
+    // class computation.
+    // FluentValidation offers no way to remove a rule or a dependent, so a kept yes never goes
+    // stale. A kept no does when DependentRules is called after the first ask, on a validator a
+    // form is already using: the capability stays on, and the rule-by-rule path skips those
+    // dependents.
+    private bool CarriesDependentRules(AbstractValidator<TModel> validator)
+    {
+        var known = _dependentRules;
+        if (known == Unread)
+        {
+            known = Absent;
+            foreach (var rule in (IEnumerable<IValidationRule>)validator)
+            {
+                if (rule.DependentRules?.Any() == true)
+                {
+                    known = Present;
+                    break;
+                }
+            }
+
+            _dependentRules = known;
+        }
+
+        return known == Present;
     }
 
     /// <summary>Finds a <c>PreValidate</c> override by binding the base declaration to a validator and reading which method the call reaches.</summary>
@@ -133,8 +171,8 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <remarks>
     /// The list handed back is read-only, so no caller can alter what the next is served. One
     /// answer is kept at a time, by profile reference: a call naming the same instance as the
-    /// last call is served the same list, and any other instance is computed afresh. A rule
-    /// added after construction is never read. The profile is checked, as validating under it
+    /// last call is served the same list, and any other instance is computed afresh. A list kept
+    /// before a rule is added never gains it. The profile is checked, as validating under it
     /// is, before anything is kept.
     /// </remarks>
     public IReadOnlyList<RuleIdentity> SelectRules(ValidationProfile profile)
@@ -492,6 +530,14 @@ public sealed partial class FluentValidationModelValidator<TModel>
             throw FormidableConfigurationError.Mark(new NotSupportedException(
                 $"'{FriendlyTypeName.Of(_validator.GetType())}' overrides ValidateAsync, which runs once per validator " +
                 "call, so whatever the override adds or forwards would be run once for every set of rules run apart. " +
+                $"Check {nameof(CanValidateByRule)} first."));
+        }
+
+        if (CarriesDependentRules(abstractValidator))
+        {
+            throw FormidableConfigurationError.Mark(new NotSupportedException(
+                $"'{FriendlyTypeName.Of(_validator.GetType())}' declares a rule with DependentRules, which FluentValidation " +
+                "runs from inside the rule carrying them, so a set of rules run apart would skip them. " +
                 $"Check {nameof(CanValidateByRule)} first."));
         }
 

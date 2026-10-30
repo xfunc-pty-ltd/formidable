@@ -253,8 +253,9 @@ when one of its rules lacks a ruleset the attaching rule sits in. The same holds
 rules sits in a ruleset while the attaching rule sits in none. Rulesets named on the `SetValidator`
 call itself keep the child to one run.
 
-Only a validator with a class-level cascade stop, a `PreValidate` or `ValidateAsync` override, or
-one that is not FluentValidation's `AbstractValidator`, re-runs every rule on each check.
+Only a validator with a class-level cascade stop, a `PreValidate` or `ValidateAsync` override,
+`DependentRules` on a rule of its own, or one that is not FluentValidation's `AbstractValidator`,
+re-runs every rule on each check.
 
 With `TrackFormValidity` on, narrowing saves nothing: the rules the live channel skipped still run
 at each check to keep `IsFormValid` honest. And no field wears the `Valid` class on the strength of

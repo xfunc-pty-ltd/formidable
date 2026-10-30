@@ -296,7 +296,8 @@ pair into one round trip).
 
 A validator the engine can take rule by rule has its rules run separately, so one check can reuse
 what another found for the same values. FluentValidation's `AbstractValidator` is one unless you set
-`ClassLevelCascadeMode.Stop` or override `PreValidate` or `ValidateAsync`, as
+`ClassLevelCascadeMode.Stop`, override `PreValidate` or `ValidateAsync`, or chain `DependentRules`
+onto a rule of its own, as
 [Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit) says.
 On any other validator, each validity check beside a narrowed live check is one whole
 `SubmitProfile` validation on top of it.

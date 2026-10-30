@@ -234,6 +234,54 @@ public class RuleLevelValidatorTests
         public override ValidationResult Validate(ValidationContext<RuleModel> context) => base.Validate(context);
     }
 
+    /// <summary>A rule carrying a dependent rule: the event name is checked once the notes are present.</summary>
+    private sealed class DependentRuleValidator : AbstractValidator<RuleModel>
+    {
+        public DependentRuleValidator() =>
+            RuleFor(x => x.Notes).NotEmpty().DependentRules(() =>
+                RuleFor(x => x.EventName).NotEmpty()
+                    .WithMessage("Event name is required").WithErrorCode("EVENT_DEPENDENT"));
+    }
+
+    /// <summary>The dependent rule one level further down, inside another dependent rule.</summary>
+    private sealed class NestedDependentRuleValidator : AbstractValidator<RuleModel>
+    {
+        public NestedDependentRuleValidator() =>
+            RuleFor(x => x.Notes).NotEmpty().DependentRules(() =>
+                RuleFor(x => x.Contact).NotEmpty().DependentRules(() =>
+                    RuleFor(x => x.EventName).NotEmpty().WithMessage("Event name is required")));
+    }
+
+    /// <summary>A child validator whose own rule carries a dependent rule.</summary>
+    private sealed class DependentSlotValidator : AbstractValidator<RuleSlot>
+    {
+        public DependentSlotValidator() =>
+            RuleFor(s => s.Name).NotEmpty().DependentRules(() =>
+                RuleFor(s => s.Special).NotEmpty()
+                    .WithMessage("Slot special is required").WithErrorCode("SLOT_DEPENDENT"));
+    }
+
+    /// <summary>Dependent rules only where a child context asks about them: a child validator, a <c>ChildRules</c> block and an <c>Include()</c>d validator. None of its own rules carries one.</summary>
+    private sealed class ChildScopedDependentsValidator : AbstractValidator<RuleModel>
+    {
+        public ChildScopedDependentsValidator()
+        {
+            RuleForEach(x => x.Slots).SetValidator(new DependentSlotValidator());
+            RuleForEach(x => x.Items).ChildRules(item =>
+                item.RuleFor(i => i.Sku).NotNull().DependentRules(() =>
+                    item.RuleFor(i => i.Sku).NotEmpty()
+                        .WithMessage("Sku is required").WithErrorCode("SKU_DEPENDENT")));
+            Include(new DependentRuleValidator());
+        }
+    }
+
+    /// <summary>Calls <c>DependentRules</c> with nothing inside, so no rule depends on another.</summary>
+    private sealed class EmptyDependentRulesValidator : AbstractValidator<RuleModel>
+    {
+        public EmptyDependentRulesValidator() =>
+            RuleFor(x => x.Notes).MaximumLength(3).DependentRules(() => { });
+    }
+
     /// <summary>The draft-and-submit shape with no override.</summary>
     private sealed class DraftSubmitPlainValidator : DraftSubmitValidator<RuleModel>
     {
@@ -586,6 +634,62 @@ public class RuleLevelValidatorTests
 
         Assert.False(new FluentValidationModelValidator<RuleModel>(new InheritedValidateAsyncValidator()).CanValidateByRule);
         Assert.True(new FluentValidationModelValidator<RuleModel>(new SyncOverrideValidator()).CanValidateByRule);
+    }
+
+    // FluentValidation asks about a dependent rule in the context of the rule carrying it, and a
+    // dependent rule is none of the validator's own rules, so a set of rules run apart would skip
+    // it. A dependent at any depth under the validator's own rules turns the capability off, and
+    // every doer then throws. Mutation: drop the DependentRules test from CanValidateByRule and
+    // RequireRuleLevelCapability, and the capability reads true and SelectRules answers.
+    // Mutation: read a non-null DependentRules as carrying one, and the empty control reads false.
+    [Fact]
+    public async Task CanValidateByRule_is_false_for_a_rule_carrying_DependentRules()
+    {
+        var declared = new FluentValidationModelValidator<RuleModel>(new DependentRuleValidator());
+        Assert.False(declared.CanValidateByRule);
+        var fromDeclared = Assert.Throws<NotSupportedException>(() => declared.SelectRules(ValidationProfile.Submit));
+        Assert.Contains("DependentRules", fromDeclared.Message);
+        Assert.Contains(nameof(DependentRuleValidator), fromDeclared.Message);
+        Assert.Throws<NotSupportedException>(() => declared.GroupBySelectionClass([]));
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => declared.ValidateRulesAsync(new RuleModel(), ValidationProfile.Submit, [default]));
+
+        // The whole profile in one call runs the dependent rule.
+        var whole = await declared.ValidateAsync(new RuleModel { Notes = "ok" }, ValidationProfile.Submit);
+        Assert.Single(whole.Issues, issue => issue.Code == "EVENT_DEPENDENT");
+
+        Assert.False(new FluentValidationModelValidator<RuleModel>(new NestedDependentRuleValidator()).CanValidateByRule);
+
+        // Control: DependentRules with nothing inside leaves no rule to skip.
+        Assert.True(new FluentValidationModelValidator<RuleModel>(new EmptyDependentRulesValidator()).CanValidateByRule);
+    }
+
+    // A dependent rule a child context asks about, in a child validator, a ChildRules block or an
+    // Include()d validator, is answered by the profile's own selector, so it runs on the
+    // rule-by-rule path: the capability stays on, and that path reports what the whole profile
+    // reports. Mutation: make the DependentRules test answer true for every validator, and the
+    // capability reads false.
+    [Fact]
+    public async Task Dependent_rules_a_child_context_asks_about_keep_the_capability()
+    {
+        var adapter = new FluentValidationModelValidator<RuleModel>(new ChildScopedDependentsValidator());
+        Assert.True(adapter.CanValidateByRule);
+
+        var model = new RuleModel
+        {
+            Notes = "ok",
+            Slots = [new RuleSlot { Name = "present", Special = string.Empty }],
+            Items = [new RuleItem { Sku = string.Empty }],
+        };
+        foreach (var profile in new[] { ValidationProfile.Draft, ValidationProfile.Submit })
+        {
+            var whole = await adapter.ValidateAsync(model, profile);
+            var byRule = await adapter.ValidateRulesAsync(model, profile, adapter.SelectRules(profile));
+            Assert.Equal(whole.Issues.Select(issue => issue.Code), byRule.Report.Issues.Select(issue => issue.Code));
+            Assert.Equal(
+                ["EVENT_DEPENDENT", "SKU_DEPENDENT", "SLOT_DEPENDENT"],
+                whole.Issues.Select(issue => issue.Code).Order(StringComparer.Ordinal));
+        }
     }
 
     [Fact]

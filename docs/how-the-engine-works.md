@@ -771,9 +771,9 @@ read.
 
 `FluentValidationModelValidator<TModel>` (what `AddFormidable()` registers) reports the
 capability true exactly when the wrapped validator is an `AbstractValidator<TModel>` whose
-`ClassLevelCascadeMode` is `CascadeMode.Continue` and whose class overrides neither `PreValidate`
-nor `ValidateAsync`. A hand-rolled `IValidator<T>` cannot enumerate its rules, so it turns the
-capability off.
+`ClassLevelCascadeMode` is `CascadeMode.Continue`, whose class overrides neither `PreValidate` nor
+`ValidateAsync`, and none of whose own rules carries `DependentRules`. A hand-rolled
+`IValidator<T>` cannot enumerate its rules, so it turns the capability off.
 
 A class-level cascade stop lets a failing rule suppress later rules within one whole-profile run,
 and executing part of a profile can reproduce neither the stop nor its verdict, so the adapter
@@ -785,6 +785,18 @@ Every call passes through `ValidateAsync`, so an override of it (one that append
 forwards to another validator) would also run once per class, and it turns the capability off in
 the same way. The rule-level path is async alone, so an override of the synchronous `Validate`
 never runs on it and leaves the capability on.
+
+A rule declared inside `DependentRules` is not one of the validator's own rules, and
+FluentValidation asks the selector about it in the context of the rule carrying it. Outside a child
+context, the set's selector admits only the rules it was handed, so a set run apart would skip the
+dependent rule. An own rule that carries one therefore turns the capability off, and the whole
+profile runs the dependent rule as FluentValidation does.
+
+A dependent rule inside a child validator, a `ChildRules` block or an `Include()` is asked about in
+a child context, which the rule-level path answers as a whole-profile run does, so it runs on that
+path and leaves the capability on. The adapter reads the validator's own rules once and keeps the
+answer. A `DependentRules` call made after that read leaves the capability on, and the rule-level
+path skips the rules it declares.
 
 Whichever path runs, the engine takes its `IModelValidator<TModel>` once, when it is built (the
 root's `Validator` parameter, else the container), and keeps that instance until the root rebuilds

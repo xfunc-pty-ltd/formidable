@@ -246,7 +246,8 @@ Why: [how the engine works: what starts each check](how-the-engine-works.md#the-
 
 Not on a validator the library can take rule by rule, running its rules separately so that one
 check can reuse what another found for the same values. FluentValidation's `AbstractValidator` is
-one, unless you set `ClassLevelCascadeMode.Stop` or override `PreValidate` or `ValidateAsync`.
+one, unless you set `ClassLevelCascadeMode.Stop`, override `PreValidate` or `ValidateAsync`, or
+chain `DependentRules` onto a rule of its own.
 
 Submit, then edit a field, and no rule runs twice. One edit runs a rule declared once exactly once,
 however many of the form's profiles select it. Whichever of the live check and the whole-form
@@ -267,10 +268,11 @@ visible: submit, then type, and one "checking" cycle runs, not two. The exceptio
   rules, ruleset rules and `ChildRules` run once.
 - A rule written with `RuleForEach` is checked for every row at once, so an expensive per-row
   check costs the whole collection on each edit that reaches it.
-- A validator with a class-level cascade stop, a `PreValidate` or `ValidateAsync` override, or one
-  that is not FluentValidation's `AbstractValidator`, has every rule re-run on every check, so after
-  a submit a rule can run twice for one edit. A per-rule `.Cascade(CascadeMode.Stop)` changes
-  nothing.
+- A validator with a class-level cascade stop, a `PreValidate` or `ValidateAsync` override,
+  `DependentRules` on a rule of its own, or one that is not FluentValidation's `AbstractValidator`,
+  has every rule re-run on every check, so after a submit a rule can run twice for one edit. A
+  per-rule `.Cascade(CascadeMode.Stop)` changes nothing, and neither does `DependentRules` inside a
+  child validator or an `Include()`.
 - Pressing Submit right after a live check asks the async rule again. So can
   [`TrackFormValidity`](#what-does-trackformvalidity-cost-with-async-rules) where `LiveProfile` is
   narrowed, and after a load you edited during where `RefreshDebounce` never passes
@@ -382,10 +384,11 @@ whole-form check by the submit profile, which keeps `IsFormValid` current. With 
 check answers the rest, so tracking can put green on a field a narrowed live check could not.
 
 Two more setups keep a passing check short of green. A validator the engine cannot take rule by
-rule (an `AbstractValidator` that sets `ClassLevelCascadeMode.Stop` or overrides `PreValidate` or
-`ValidateAsync`, or a validator of your own) earns green only from a check that answers the whole
-model: a submit, the whole-form re-check or a load of values. With `TrackFormValidity` on, the
-validity check earns it too, and on the default profiles so does the live check each edit starts.
+rule (an `AbstractValidator` that sets `ClassLevelCascadeMode.Stop`, overrides `PreValidate` or
+`ValidateAsync` or chains `DependentRules` onto a rule of its own, or a validator of your own)
+earns green only from a check that answers the whole model: a submit, the whole-form re-check or a
+load of values. With `TrackFormValidity` on, the validity check earns it too, and on the default
+profiles so does the live check each edit starts.
 
 And under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` with tracking off, an edit before the
 first submit or server reply starts no check. Green after it comes from a submit, the whole-form
