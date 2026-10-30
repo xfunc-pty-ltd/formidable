@@ -588,7 +588,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         return result;
     }
 
-    /// <summary>Disposes the current engine and builds a new engine, <c>EditContext</c> and <see cref="FormidableFormContext"/> over <paramref name="model"/>; the <see cref="Model"/> swap and <see cref="ResetAsync"/> share it.</summary>
+    /// <summary>Builds a new engine, <c>EditContext</c> and <see cref="FormidableFormContext"/> over <paramref name="model"/>, then disposes the current engine; the <see cref="Model"/> swap and <see cref="ResetAsync"/> share it.</summary>
     /// <param name="model">The model the new engine validates.</param>
     // A brand new context instance, not merely a new engine reference inside the old one: that is
     // what BuildRenderTree's region key relies on, because a new context instance is what turns the
@@ -596,41 +596,53 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     // pointed at whatever the old context still refers to.
     private void RebuildEngine(TModel model)
     {
-        if (_engine is not null)
+        var retired = _engine;
+        if (retired is not null)
         {
-            _engine.Registry.Changed -= Reconciler.OnRegistryChanged;
-            _engine.Dispose();
+            retired.Registry.Changed -= Reconciler.OnRegistryChanged;
         }
 
-        _boundModel = model;
-        _boundOptions = Options;
-        var editContext = new EditContext(model);
-        _engine = FormidableEngineFactory.Create(
-            model,
-            editContext,
-            Services,
-            Validator,
-            Options,
-            renderDispatch: work => InvokeAsync(work),
-            postedFault: DispatchPostedFault);
-        _logger = FormidableEngineFactory.ResolveLogger(Services);
-        // The reader answers null once the form is disposed: Dispose keeps the engine it tore down
-        // so Engine can still return it, and no report belongs there.
-        _context = new FormidableFormContext(
-            _engine, FocusFirstErrorAsync, () => _disposed ? null : _engine, () => IsSubmitting);
-        _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
+        try
+        {
+            _boundModel = model;
+            _boundOptions = Options;
+            var editContext = new EditContext(model);
+            _engine = FormidableEngineFactory.Create(
+                model,
+                editContext,
+                Services,
+                Validator,
+                Options,
+                renderDispatch: work => InvokeAsync(work),
+                postedFault: DispatchPostedFault);
+            _logger = FormidableEngineFactory.ResolveLogger(Services);
+            // The reader answers null once the form is disposed: Dispose keeps the engine it tore
+            // down so Engine can still return it, and no report belongs there.
+            _context = new FormidableFormContext(
+                _engine, FocusFirstErrorAsync, () => _disposed ? null : _engine, () => IsSubmitting);
+            _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
 
-        // Every submit running on the old engine is abandoned with it (see SubmitAsync).
-        _submitsRunning = 0;
-        _stopCheckingSubmit = null;
+            // Every submit running on the old engine is abandoned with it (see SubmitAsync).
+            _submitsRunning = 0;
+            _stopCheckingSubmit = null;
 
-        // The new engine has its own registry, whose version starts over — and its own fields to
-        // locate, since the swapped-in model's identifiers are not the old ones. Both trackers
-        // reset, or the old registry's count could happen to match the new one's and the first
-        // render after a swap would take itself for a render with nothing to do.
-        _fieldOrderVersion = -1;
-        Reconciler.Reset();
-        _engine.Registry.Changed += Reconciler.OnRegistryChanged;
+            // The new engine has its own registry, whose version starts over — and its own fields
+            // to locate, since the swapped-in model's identifiers are not the old ones. Both
+            // trackers reset, or the old registry's count could happen to match the new one's and
+            // the first render after a swap would take itself for a render with nothing to do.
+            _fieldOrderVersion = -1;
+            Reconciler.Reset();
+            _engine.Registry.Changed += Reconciler.OnRegistryChanged;
+        }
+        finally
+        {
+            // Disposed last, once the form holds the new engine. Disposing cancels the old
+            // engine's check, and with no synchronization context (a WebAssembly host) a submit
+            // waiting on it resumes inside this call: it must find the engine replaced, or it
+            // would run a callback and move focus for a submit the rebuild abandoned. A disposal
+            // that throws (a rule's cancellation callback) then leaves the form on the new engine.
+            retired?.Dispose();
+        }
     }
 
     /// <summary>The form's rendered-field-set reconciler, built on first use over whichever engine the form holds when it runs.</summary>
@@ -675,6 +687,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <summary>Returns the form to pristine by rebuilding the engine over the current model, or over <paramref name="newModel"/> when <c>@bind-Model</c> is bound.</summary>
     /// <param name="newModel">The model to edit instead, or <see langword="null"/> to keep the current instance.</param>
     /// <exception cref="InvalidOperationException">No engine has been built yet, or <paramref name="newModel"/> was supplied with no <see cref="ModelChanged"/> bound.</exception>
+    /// <exception cref="AggregateException">A callback a rule registered on its cancellation token threw as the reset cancelled the old engine's check. The reset has still finished: the form holds the new engine, and a new model has reached <see cref="ModelChanged"/>.</exception>
     /// <remarks>
     /// Everything the old engine held goes with it: touched and modified state, every message,
     /// <see cref="IFormidableEngine.HasSubmitted"/>, a whole-form re-check still waiting, and a
@@ -689,16 +702,9 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             return;
         }
 
-        RequireEngine();
+        var retired = RequireEngine();
 
-        if (newModel is null)
-        {
-            RebuildEngine(Model);
-            StateHasChanged();
-            return;
-        }
-
-        if (!ModelChanged.HasDelegate)
+        if (newModel is not null && !ModelChanged.HasDelegate)
         {
             throw new InvalidOperationException(
                 $"{nameof(FormidableForm<TModel>)}.{nameof(ResetAsync)} was called with a new model, but no " +
@@ -710,10 +716,29 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
                 "Model parameter from the parent instead of calling ResetAsync with a new model.");
         }
 
-        Model = newModel;
-        RebuildEngine(newModel);
-        StateHasChanged();
-        await ModelChanged.InvokeAsync(newModel);
+        if (newModel is not null)
+        {
+            Model = newModel;
+        }
+
+        try
+        {
+            RebuildEngine(Model);
+        }
+        finally
+        {
+            // Once the form holds the new engine the reset stands, even when disposing the old one
+            // threw: the page renders it, and the binding hears of a new model, or the parent's
+            // next render would hand the old one back. The throw reaches the caller after that.
+            if (!ReferenceEquals(_engine, retired))
+            {
+                StateHasChanged();
+                if (newModel is not null)
+                {
+                    await ModelChanged.InvokeAsync(newModel);
+                }
+            }
+        }
     }
 
     /// <summary>Runs the submit and routes the outcome to <see cref="OnValidSubmit"/> or <see cref="OnInvalidSubmit"/>; the rendered <c>&lt;form&gt;</c>'s own submit runs the same thing.</summary>
@@ -1305,13 +1330,20 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         // Recorded first: a move reported between here and the observer actually going away would
         // otherwise ask a component that no longer exists to render.
         _disposed = true;
-        if (_engine is not null)
+        try
         {
-            _engine.Registry.Changed -= Reconciler.OnRegistryChanged;
-            _engine.Dispose();
+            if (_engine is not null)
+            {
+                _engine.Registry.Changed -= Reconciler.OnRegistryChanged;
+                _engine.Dispose();
+            }
         }
-
-        ReleaseScriptResources();
+        finally
+        {
+            // Released whether or not the engine's disposal threw, as a rule's cancellation
+            // callback can make it.
+            ReleaseScriptResources();
+        }
     }
 
     /// <summary>Releases the layout observer, the reference it reports through and the click guard's registered root, without awaiting the browser.</summary>

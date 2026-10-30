@@ -546,20 +546,34 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         // Recorded first, so an establish still awaiting its round trip finds this set rather
         // than registering a guard the release below has already gone past.
         _disposed = true;
-        TearDownEngine();
-        ReleaseClickRecovery();
+        try
+        {
+            TearDownEngine();
+        }
+        finally
+        {
+            // Released whether or not the engine's disposal threw, as a rule's cancellation
+            // callback can make it.
+            ReleaseClickRecovery();
+        }
     }
 
-    /// <summary>Unsubscribes from the engine's registry, disposes the engine and clears the field; a no-op with no engine, and shared by the <see cref="EditContext"/> swap and disposal.</summary>
+    /// <summary>Unsubscribes from the engine's registry, clears the field and disposes the engine; a no-op with no engine, and shared by the <see cref="EditContext"/> swap and disposal.</summary>
     private void TearDownEngine()
     {
-        if (_engine is null)
+        if (_engine is not { } engine)
         {
             return;
         }
 
-        _engine.Registry.Changed -= Reconciler.OnRegistryChanged;
-        _engine.Dispose();
+        engine.Registry.Changed -= Reconciler.OnRegistryChanged;
+
+        // Cleared before the disposal. Disposing cancels the engine's check, and with no
+        // synchronization context (a WebAssembly host) a submit waiting on it resumes inside this
+        // call: it must find the engine gone, or it would move focus for an engine this component
+        // has let go of. A disposal that throws (a rule's cancellation callback) then leaves no
+        // disposed engine behind, and the next parameter set builds a new one.
         _engine = null;
+        engine.Dispose();
     }
 }

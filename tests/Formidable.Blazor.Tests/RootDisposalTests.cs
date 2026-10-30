@@ -259,6 +259,71 @@ public class RootDisposalTests : BunitContext
         await Services.DisposeAsync();
     }
 
+    // A submit leaves a rule's throwing callback on the engine's token, so disposing the root
+    // disposes an engine that throws. The root still releases its click guard, and the throw
+    // reaches the renderer. Mutation: release the guard only after an engine disposal that returns, and
+    // neither root asks the script to release it.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_root_whose_engine_throws_as_it_is_disposed_still_releases_its_click_guard(bool attached)
+    {
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("registerClickRecovery", _ => true).SetResult(true);
+        module.SetupVoid("releaseClickRecovery", _ => true).SetVoidResult();
+        var order = new EngineOrder();
+        var validator = new CancelCallbackThrowingValidator { Throws = true };
+        var modelValidator = new FluentValidationModelValidator<EngineOrder>(validator);
+        Func<Task<SubmitOutcome>> submit;
+        if (attached)
+        {
+            var root = Render(builder =>
+            {
+                builder.OpenComponent<EditForm>(0);
+                builder.AddComponentParameter(1, nameof(EditForm.Model), order);
+                builder.AddComponentParameter(2, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => inner =>
+                {
+                    inner.OpenComponent<FormidableValidator<EngineOrder>>(0);
+                    inner.AddComponentParameter(1, nameof(FormidableValidator<EngineOrder>.Validator), modelValidator);
+                    inner.CloseComponent();
+                }));
+                builder.CloseComponent();
+            }).FindComponent<FormidableValidator<EngineOrder>>();
+            root.WaitForAssertion(() => Assert.Single(module.Invocations["registerClickRecovery"]));
+            submit = () => root.InvokeAsync(() => root.Instance.ValidateForSubmitAsync());
+        }
+        else
+        {
+            var root = Render(builder =>
+            {
+                builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+                builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), order);
+                builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.Validator), modelValidator);
+                builder.CloseComponent();
+            }).FindComponent<FormidableForm<EngineOrder>>();
+            root.WaitForAssertion(() => Assert.Single(module.Invocations["registerClickRecovery"]));
+            submit = () => root.InvokeAsync(() => root.Instance.SubmitAsync());
+        }
+
+        Assert.False((await submit()).CanProceed); // leaves the callback on its token
+        validator.Throws = false;
+
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+        await DisposeComponentsAsync();
+
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(order, string.Empty)),
+            module.Invocations["releaseClickRecovery"].Single().Arguments[0]);
+
+        // The disposal's throw reaches the renderer's unhandled path, which completes this.
+        Assert.True(Renderer.UnhandledException.IsCompleted);
+        var thrown = await Renderer.UnhandledException;
+        var callback = thrown is AggregateException aggregate ? Assert.Single(aggregate.Flatten().InnerExceptions) : thrown;
+        Assert.Equal(CancelCallbackThrowingValidator.CallbackMessage, callback.Message);
+
+        await Services.DisposeAsync();
+    }
+
     /// <summary>A page holding a form whose <c>OnValidSubmit</c> and <c>OnInvalidSubmit</c> each remove it from the page: the host re-renders without the form, which disposes it.</summary>
     private sealed class DismissingHost : ComponentBase
     {

@@ -1293,3 +1293,39 @@ public sealed class CellGridNestedForEachValidator : AbstractValidator<CellGrid>
     public CellGridNestedForEachValidator() =>
         RuleFor(g => g.Matrix).ForEach(row => row.ForEach(cell => cell.NotEmpty().WithMessage(CellGridEachRowValidator.Required)));
 }
+
+/// <summary>
+/// A submit rule on <see cref="EngineOrder.Description"/> that passes a non-empty value and, while
+/// <see cref="Throws"/> is set, leaves a callback on the token it was handed that throws when the
+/// token is cancelled. The token outlives the rule's answer, so disposing the engine that ran the
+/// rule cancels it, and the callback throws there.
+/// </summary>
+public sealed class CancelCallbackThrowingValidator : DraftSubmitValidator<EngineOrder>
+{
+    /// <summary>What the callback throws, as an <see cref="InvalidOperationException"/>.</summary>
+    public const string CallbackMessage = "The rule's cancellation callback threw.";
+
+    private volatile bool _throws;
+
+    /// <summary>Whether a run of the rule leaves the throwing callback behind.</summary>
+    public bool Throws
+    {
+        get => _throws;
+        set => _throws = value;
+    }
+
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(x => x.Description).MustAsync((description, ct) =>
+        {
+            if (Throws)
+            {
+                ct.Register(() => throw new InvalidOperationException(CallbackMessage));
+            }
+
+            return Task.FromResult(description.Length > 0);
+        }).WithMessage("Description is required");
+}
