@@ -5213,6 +5213,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Unsubscribes from the edit context, stops every timer, supersedes the pass and cancels any probe in flight, clears the message store and notifies once; later calls to <c>Dispose</c> do nothing.</summary>
+    /// <exception cref="AggregateException">A callback a rule registered on its cancellation token threw as the disposal cancelled that token. It holds every such throw, with the throw of a validation-state handler beside them, and is raised once the disposal has finished.</exception>
+    /// <exception cref="Exception">A validation-state handler threw and no callback did. The handler's own exception is raised, unwrapped, once the disposal has finished.</exception>
     public void Dispose()
     {
         if (_disposed)
@@ -5234,12 +5236,58 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // so the pass is retired here instead, or IsValidating would read true for good.
         _version++;
         EndPass();
-        _passCts?.Cancel();
-        _passCts?.Dispose();
-        _probeCts.Cancel();
-        _probeCts.Dispose();
+
+        // A rule can leave a callback on its token that throws when the token is cancelled, and
+        // both tokens outlive the rule's answer: the last pass's until the next pass, the probe's
+        // for the engine's whole life. Cancel then throws once every callback has run. Each token
+        // is cancelled and released whether or not the other threw, the rest of the disposal
+        // runs, and the callbacks' throws reach the caller last, as one AggregateException, as a
+        // pass's cancel of the pass it overtakes hands them on (see RunPassAsync). A throw from a
+        // state handler joins them.
+        List<Exception>? callbackThrows = null;
+        CancelAndRelease(_passCts, ref callbackThrows);
+        CancelAndRelease(_probeCts, ref callbackThrows);
         _store.Clear();
-        EditContext.NotifyValidationStateChanged();
+
+        // A handler that throws here joins the callbacks' throws rather than replacing them. With
+        // none collected, its throw reaches the caller unchanged.
+        try
+        {
+            EditContext.NotifyValidationStateChanged();
+        }
+        catch (Exception exception) when (callbackThrows is not null)
+        {
+            callbackThrows.Add(exception);
+        }
+
+        if (callbackThrows is not null)
+        {
+            throw new AggregateException(callbackThrows);
+        }
+    }
+
+    /// <summary>Cancels <paramref name="source"/> and disposes it, collecting what its callbacks threw into <paramref name="callbackThrows"/> rather than stopping there.</summary>
+    /// <param name="source">The token source, or <see langword="null"/> when there is none.</param>
+    /// <param name="callbackThrows">The throws collected so far; created at the first.</param>
+    private static void CancelAndRelease(CancellationTokenSource? source, ref List<Exception>? callbackThrows)
+    {
+        if (source is null)
+        {
+            return;
+        }
+
+        try
+        {
+            source.Cancel();
+        }
+        catch (AggregateException exception)
+        {
+            (callbackThrows ??= []).AddRange(exception.InnerExceptions);
+        }
+        finally
+        {
+            source.Dispose();
+        }
     }
 }
 

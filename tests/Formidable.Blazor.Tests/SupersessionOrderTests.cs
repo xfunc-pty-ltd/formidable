@@ -14,7 +14,8 @@ namespace Formidable.Blazor.Tests;
 /// Each row builds that host: no context around the engine calls, and a dispatch that runs its
 /// work inline. The rule waits with <c>WaitAsync(ct)</c>, whose wait completes inside the cancel.
 /// Recording first must not strand the new check when the cancel throws, which a callback a rule
-/// registered on its token can make it do, and a disposed engine starts no check at all.
+/// registered on its token can make it do, a disposal whose cancel throws still finishes, and a
+/// disposed engine starts no check at all.
 /// </summary>
 public class SupersessionOrderTests
 {
@@ -328,5 +329,121 @@ public class SupersessionOrderTests
         Assert.Equal(runs, validator.Runs);
         Assert.Empty(editContext.GetValidationMessages());
         Assert.False(engine.IsValidating);
+    }
+
+    /// <summary>Which of the engine's tokens a rule leaves its throwing callback on before the disposal.</summary>
+    public enum ThrowingToken
+    {
+        /// <summary>The last check's: an edit's check ran the rule and answered.</summary>
+        Check,
+
+        /// <summary>The validity check's: the check every tracked form runs as it is built ran the rule.</summary>
+        ValidityCheck,
+
+        /// <summary>Both: the check at build and an edit's check each ran the rule.</summary>
+        Both,
+    }
+
+    // A rule left a callback on its token that throws, and the token outlives the rule's answer:
+    // the last check's token stays the engine's until the next check, and the validity check's
+    // token lives as long as the engine. Disposing cancels both, so the callback throws inside
+    // Dispose. The disposal still finishes: the message store is emptied and the edit context
+    // told, and the callback's throw then reaches the caller, every callback's in one
+    // AggregateException, as a check's cancel of an overtaken check hands it on.
+    // Mutation: cancel the tokens with no guard, as before, and every row keeps its message in
+    // the store and raises no notification; the Both row also loses the validity check's throw.
+    [Theory]
+    [InlineData(ThrowingToken.Check)]
+    [InlineData(ThrowingToken.ValidityCheck)]
+    [InlineData(ThrowingToken.Both)]
+    public void Dispose_finishes_its_cleanup_when_a_cancellation_callback_throws(ThrowingToken token)
+    {
+        var model = new Account { Other = "x" };
+        var editContext = new EditContext(model);
+        var validator = new HeldValidator { Fails = true, ThrowsOnCancel = token != ThrowingToken.Check };
+        var engine = new FormidableEngine<Account>(
+            model, editContext, new FluentValidationModelValidator<Account>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { TrackFormValidity = token != ThrowingToken.Check },
+            new FakeTimeProvider(), work => work());
+        var other = new FieldIdentifier(model, nameof(Account.Other));
+
+        if (token == ThrowingToken.ValidityCheck)
+        {
+            Assert.Equal(1, validator.Runs); // the check at build ran the rule
+            engine.ApplyServerIssues([new ValidationIssue(nameof(Account.Other), "Server says no")]);
+        }
+        else
+        {
+            validator.ThrowsOnCancel = true;
+            editContext.NotifyFieldChanged(other); // its check runs the rule and answers at once
+            Assert.False(engine.IsValidating);
+        }
+
+        Assert.NotEmpty(editContext.GetValidationMessages(other));
+        var notified = 0;
+        editContext.OnValidationStateChanged += (_, _) => notified++;
+
+        var thrown = Assert.Throws<AggregateException>(engine.Dispose);
+
+        Assert.All(thrown.InnerExceptions, inner => Assert.IsType<InvalidOperationException>(inner));
+        Assert.Equal(token == ThrowingToken.Both ? 2 : 1, thrown.InnerExceptions.Count);
+        Assert.Empty(editContext.GetValidationMessages());
+        Assert.Equal(1, notified);
+        Assert.False(engine.IsValidating);
+
+        engine.Dispose(); // a second call does nothing
+        Assert.Equal(1, notified);
+    }
+
+    // The state-changed notification is the disposal's last step, so a handler that throws on it
+    // meets whatever the callbacks threw. The handler's throw joins theirs in the one
+    // AggregateException instead of replacing them, and the cleanup before it has finished.
+    // Mutation: notify with no guard, as before, and the handler's throw reaches the caller alone.
+    [Fact]
+    public void Dispose_raises_a_throwing_state_handlers_exception_with_the_callbacks()
+    {
+        var model = new Account { Other = "x" };
+        var editContext = new EditContext(model);
+        var validator = new HeldValidator { Fails = true, ThrowsOnCancel = true };
+        var engine = new FormidableEngine<Account>(
+            model, editContext, new FluentValidationModelValidator<Account>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions(),
+            new FakeTimeProvider(), work => work());
+        var other = new FieldIdentifier(model, nameof(Account.Other));
+        editContext.NotifyFieldChanged(other); // its check runs the rule and answers at once
+        Assert.NotEmpty(editContext.GetValidationMessages(other));
+        editContext.OnValidationStateChanged += (_, _) => throw new ArgumentException("handler");
+
+        var thrown = Assert.Throws<AggregateException>(engine.Dispose);
+
+        Assert.Equal(2, thrown.InnerExceptions.Count);
+        Assert.Single(thrown.InnerExceptions, inner => inner is InvalidOperationException);
+        Assert.Single(thrown.InnerExceptions, inner => inner is ArgumentException { Message: "handler" });
+        Assert.Empty(editContext.GetValidationMessages());
+    }
+
+    // With no callback throw to join, the handler's exception is the disposal's own, not wrapped.
+    // Mutation: collect the handler's throw whether or not a callback threw, and this arrives
+    // as an AggregateException.
+    [Fact]
+    public void Dispose_raises_a_throwing_state_handlers_exception_unwrapped_when_no_callback_threw()
+    {
+        var model = new Account { Other = "x" };
+        var editContext = new EditContext(model);
+        var validator = new HeldValidator { Fails = true };
+        var engine = new FormidableEngine<Account>(
+            model, editContext, new FluentValidationModelValidator<Account>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions(),
+            new FakeTimeProvider(), work => work());
+        var other = new FieldIdentifier(model, nameof(Account.Other));
+        editContext.NotifyFieldChanged(other);
+        Assert.NotEmpty(editContext.GetValidationMessages(other));
+        editContext.OnValidationStateChanged += (_, _) => throw new ArgumentException("handler");
+
+        var thrown = Assert.Throws<ArgumentException>(engine.Dispose);
+
+        Assert.Equal("handler", thrown.Message);
+        Assert.Empty(editContext.GetValidationMessages());
     }
 }
