@@ -3,6 +3,8 @@
 Form validation for Blazor, built on FluentValidation — profiles, progressive disclosure,
 row-stable collections, and one wire format shared by client and server.
 
+![A registration form in the Formidable demo. Submit scrolls up to a list of five missed fields and moves focus to the first one; clicking "Venue region is required" in the list scrolls down to that field.](https://raw.githubusercontent.com/xfunc-pty-ltd/formidable/aba2bc74c94b72f7295b5e9554ef26f60247bf86/docs/assets/showcase-loop.gif)
+
 I wrote it because the layer between Blazor's EditForm and FluentValidation is one I kept
 rebuilding by hand, one client form at a time. This is that layer, built once and covered by
 tests, running a real project's forms today.
