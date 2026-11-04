@@ -1,9 +1,7 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-dark.png">
-    <img src="docs/assets/hero-light.png" alt="The Formidable sample's full workout page: a summary listing one error and one advisory, above fields with green borders." width="820">
-  </picture>
+  <img src="docs/assets/showcase-loop.gif" alt="A registration form in the Formidable demo. Submit scrolls up to a list of five missed fields and moves focus to the first one; clicking &quot;Venue region is required&quot; in the list scrolls down to that field." width="800">
 </p>
+<p align="center"><a href="#watch-the-tour">Watch the 80-second tour</a></p>
 
 <h1 align="center">Formidable</h1>
 <p align="center">Form validation for Blazor, built on FluentValidation — profiles, progressive disclosure, row-stable collections, and one wire format shared by client and server.</p>
@@ -282,6 +280,17 @@ dotnet run --project samples/Formidable.Sample
 ```
 
 The API listens on `http://localhost:5180`; open the Blazor app at `http://localhost:5181`.
+
+## Watch the tour
+
+The demo's event registration form, in 80 seconds and without sound. It saves a draft and loads it
+back, and checks an email while you watch. Submit takes you to the first problem, and the list of
+problems at the top takes you to any other. A hidden empty field still blocks the submit, and the
+server's answer shows under the field it names.
+
+https://github.com/user-attachments/assets/ab692ceb-f123-484a-8b2c-ed62c9e30ddc
+
+Also on [YouTube](https://youtu.be/hJyjsCXSQJE).
 
 ## Live demo
 
