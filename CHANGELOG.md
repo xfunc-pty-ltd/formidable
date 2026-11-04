@@ -5,6 +5,43 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.2.0] - 2026-11-04
+
+### Added
+
+- *(blazor)* Say whether a server-request mark is still current ([1310676](https://github.com/xfunc-pty-ltd/formidable/commit/131067650d59665bd092379f29bbfe6630ff16b2))
+- *(sample)* Save and load a draft on the Workout page ([5560276](https://github.com/xfunc-pty-ltd/formidable/commit/5560276b0d4e801b996d9ef6a4e500e67470af94))
+
+### Fixed
+
+- *(core)* Name included rulesets in the empty-selection message ([b4d4aa5](https://github.com/xfunc-pty-ltd/formidable/commit/b4d4aa593497b00168ebf080ac2d120b884cdf82))
+- *(blazor)* Name the form when a blocked submit's focus misses it ([5caaf0f](https://github.com/xfunc-pty-ltd/formidable/commit/5caaf0fcf0ccbddc1560b834ace5a22eddf21373))
+- *(blazor)* Show a submit's checking only on fields its rules cover ([7b9e8e0](https://github.com/xfunc-pty-ltd/formidable/commit/7b9e8e017f7aa4e9b9581033549222ce671d1ade))
+- *(blazor)* Keep a server reply when a field joins the form ([173558e](https://github.com/xfunc-pty-ltd/formidable/commit/173558eae23e181bf85a6bcafd67e44739d384f1))
+- *(core)* Find an object row by walking a collection with no indexer ([ed3924f](https://github.com/xfunc-pty-ltd/formidable/commit/ed3924f50b4df6151c4c59fb35fb0a6a37398be7))
+- *(sample)* Show Blazor's error UI when the sample fails ([9a45de8](https://github.com/xfunc-pty-ltd/formidable/commit/9a45de860cd9e4f33d85c5cd6e528af715183810))
+- *(blazor)* Keep the submit flags up while a newer check overtakes ([ac855a4](https://github.com/xfunc-pty-ltd/formidable/commit/ac855a4d4519db58ee6a9ae602bf11e665c0f944))
+- *(blazor)* Finish disposing an engine when a cancel callback throws ([92500be](https://github.com/xfunc-pty-ltd/formidable/commit/92500be1faabfabda82733f51ec0607f6134a858))
+- *(sample)* Make Dietary notes a submit rule on the Workout page ([601b3b2](https://github.com/xfunc-pty-ltd/formidable/commit/601b3b25993c5746ee96645e2f6ad44047d43925))
+- *(blazor)* Keep an outdated validity answer off IsFormValid ([c447803](https://github.com/xfunc-pty-ltd/formidable/commit/c447803d86a8e0690f73846a84d8383668f47c12))
+- *(blazor)* Publish IsFormValid with the verdict that flipped it ([5820bc2](https://github.com/xfunc-pty-ltd/formidable/commit/5820bc29e0b21ac128d53e73a0f8d4046f0d3208))
+- *(blazor)* Fire no OnInvalidSubmit for a submit a reset abandons ([3f1467d](https://github.com/xfunc-pty-ltd/formidable/commit/3f1467d57706f195d42f1521f9c518c526c239a4))
+- *(core)* Run rules inside DependentRules on every form check ([ce27307](https://github.com/xfunc-pty-ltd/formidable/commit/ce27307dd5f57fbef840904e4332ae819fb26e4a))
+
+### Performance
+
+- *(blazor)* Run an async rule once per edit with TrackFormValidity on ([e8aa3fa](https://github.com/xfunc-pty-ltd/formidable/commit/e8aa3fa23ed18fe3a6485c7e37cab0991633c59c))
+- *(blazor)* Read an enumerable-only collection once per load ([7cb66e7](https://github.com/xfunc-pty-ltd/formidable/commit/7cb66e7d559e4523abecac4348c3e29daaa4986e))
+- *(blazor)* Row-key checks re-render wrappers only when a row may move ([598dc19](https://github.com/xfunc-pty-ltd/formidable/commit/598dc198afccb0bc5eb2781fe45862743d57ff85))
+
+### Documentation
+
+- Say which re-check a server reply starts ([d8ba8be](https://github.com/xfunc-pty-ltd/formidable/commit/d8ba8be03cb464490fff286480ad03296d07ac0d))
+- State what a throwing handler does to attach mode on WebAssembly ([861454b](https://github.com/xfunc-pty-ltd/formidable/commit/861454be6356ddb5f2ac042247ad609893040224))
+- Name the Edit lambda shape that breaks below C# 13 ([8d99b27](https://github.com/xfunc-pty-ltd/formidable/commit/8d99b27ac2ebde5891b1e6f2f1d9e69ac2a0665e))
+- Define the terms readers met before their definitions ([06f1eac](https://github.com/xfunc-pty-ltd/formidable/commit/06f1eacf6e0a39b5e9a1cfddf51abb0265090494))
+- Define reference-page terms at first use ([82d0277](https://github.com/xfunc-pty-ltd/formidable/commit/82d0277199b6ed008fe9b2692ecf9ab1368a4dee))
+
 ## [3.1.0] - 2026-10-17
 
 ### Added
@@ -307,6 +344,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Trimming happens at publish, and the defaults come first-class ([bb84eb5](https://github.com/xfunc-pty-ltd/formidable/commit/bb84eb5b3c9c514fbdbdadd32dee43d27cad21b2))
 - Retire the publish-day markers ([6255237](https://github.com/xfunc-pty-ltd/formidable/commit/62552376cd6712bc79a8cbe41fdae72fbcd05d11))
 
+[3.2.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.2.0
 [3.1.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.1.0
 [3.0.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.0.0
 [2.0.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v2.0.0
