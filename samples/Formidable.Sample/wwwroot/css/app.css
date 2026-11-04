@@ -98,11 +98,17 @@ html {
    Bootstrap 5.3 without data-bs-theme carries its own light-only `body` rule;
    being later, it wins the equal-specificity tie in dark mode and flips the whole shell light.
    `html body` out-specifies it while leaving the demo area to theme itself through its own
-   data-bs-theme attribute. */
+   data-bs-theme attribute. Links in page content take the accent in dark mode: the browser's
+   default link colours suit a light page and read poorly on --bg, and `main a` out-specifies
+   Bootstrap's own `a` rule the same way. */
 @media (prefers-color-scheme: dark) {
     html body {
         background: var(--bg);
         color: var(--text);
+    }
+
+    main a {
+        color: var(--accent);
     }
 }
 
