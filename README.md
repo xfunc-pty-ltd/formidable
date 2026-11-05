@@ -288,9 +288,9 @@ back, and checks an email while you watch. Submit takes you to the first problem
 problems at the top takes you to any other. A hidden empty field still blocks the submit, and the
 server's answer shows under the field it names.
 
-https://github.com/user-attachments/assets/ab692ceb-f123-484a-8b2c-ed62c9e30ddc
+https://github.com/user-attachments/assets/f90039c4-7991-42ad-bbcf-5142b2d91f47
 
-Also on [YouTube](https://youtu.be/hJyjsCXSQJE).
+Also on [YouTube](https://youtu.be/uNJ_d_f7_BM).
 
 ## Live demo
 
