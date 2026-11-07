@@ -1185,16 +1185,53 @@ public sealed class HoldingDispatch
     /// <summary>The dispatch to hand the engine.</summary>
     public Func<Func<Task>, Task> Dispatch => Run;
 
-    /// <summary>Stops holding and runs the waiting delegates in order.</summary>
+    /// <summary>Stops holding and runs the waiting delegates in order; each waiting caller's task ends as its delegate's task does, faulted or cancelled included.</summary>
+    // A delegate that throws before it returns a task faults its own caller's task, where an unheld
+    // dispatch would throw to that caller, and the delegates queued after it still run.
     public void Drain()
     {
         Holding = false;
         while (_held.TryDequeue(out var held))
         {
-            _ = Run(held.Work).ContinueWith(
-                _ => held.Done.TrySetResult(),
+            Task ran;
+            try
+            {
+                ran = Run(held.Work);
+            }
+            catch (Exception exception)
+            {
+                held.Done.TrySetException(exception);
+                continue;
+            }
+
+            _ = ran.ContinueWith(
+                task => EndAs(task, held.Done),
                 TaskScheduler.Default);
         }
+    }
+
+    private static void EndAs(Task ran, TaskCompletionSource done)
+    {
+        if (ran.IsFaulted)
+        {
+            done.TrySetException(ran.Exception!.InnerExceptions);
+            return;
+        }
+
+        if (ran.IsCanceled)
+        {
+            try
+            {
+                ran.GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException cancelled)
+            {
+                done.TrySetCanceled(cancelled.CancellationToken);
+                return;
+            }
+        }
+
+        done.TrySetResult();
     }
 
     private Task Run(Func<Task> work)
@@ -1232,6 +1269,18 @@ public static class EngineTestSync
                 return work();
             }
         };
+    }
+
+    /// <summary>Yields until <paramref name="condition"/> holds, for at most five seconds.</summary>
+    /// <returns>Whether the condition holds at the end.</returns>
+    public static async Task<bool> UntilAsync(Func<bool> condition)
+    {
+        for (var waited = 0; waited < 500 && !condition(); waited++)
+        {
+            await Task.Delay(10);
+        }
+
+        return condition();
     }
 
     /// <summary>

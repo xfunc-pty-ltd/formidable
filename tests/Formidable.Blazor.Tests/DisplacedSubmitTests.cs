@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
+using static Formidable.Blazor.Tests.Fixtures.EngineTestSync;
 
 namespace Formidable.Blazor.Tests;
 
@@ -617,16 +618,6 @@ public class DisplacedSubmitTests : BunitContext
                 SynchronizationContext.Current!.Post(_ => start(), null);
             }
         };
-    }
-
-    private static async Task<bool> UntilAsync(Func<bool> condition)
-    {
-        for (var waited = 0; waited < 500 && !condition(); waited++)
-        {
-            await Task.Delay(10);
-        }
-
-        return condition();
     }
 
     private async Task SettleAsync(KitForm kit)

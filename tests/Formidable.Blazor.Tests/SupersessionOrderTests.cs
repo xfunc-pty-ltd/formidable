@@ -2,6 +2,7 @@ using FluentValidation;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.Time.Testing;
+using static Formidable.Blazor.Tests.Fixtures.EngineTestSync;
 
 namespace Formidable.Blazor.Tests;
 
@@ -226,18 +227,6 @@ public class SupersessionOrderTests
             editContext.NotifyFieldChanged(new FieldIdentifier(model, member));
             return true;
         });
-
-    /// <summary>Yields until <paramref name="condition"/> holds, for at most five seconds.</summary>
-    /// <returns>Whether the condition holds at the end.</returns>
-    private static async Task<bool> UntilAsync(Func<bool> condition)
-    {
-        for (var waited = 0; waited < 500 && !condition(); waited++)
-        {
-            await Task.Delay(10);
-        }
-
-        return condition();
-    }
 
     // The overtaken submit's end runs inside the overtaking call, as its token is cancelled. The
     // one notification raised inside that call is the overtaking check's begin, both flags rise

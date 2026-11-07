@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
+using static Formidable.Blazor.Tests.Fixtures.EngineTestSync;
 
 namespace Formidable.Blazor.Tests;
 
@@ -255,18 +256,6 @@ public class FormidableEngineOutdatedSubmitTests : BunitContext
                 return Task.CompletedTask;
             },
         };
-    }
-
-    /// <summary>Yields until <paramref name="condition"/> holds, for at most five seconds.</summary>
-    /// <returns>Whether the condition holds at the end.</returns>
-    private static async Task<bool> UntilAsync(Func<bool> condition)
-    {
-        for (var waited = 0; waited < 500 && !condition(); waited++)
-        {
-            await Task.Delay(10);
-        }
-
-        return condition();
     }
 
     /// <summary>Moves the clock past every debounce in steps, waits out any check still running, then moves it an hour on.</summary>

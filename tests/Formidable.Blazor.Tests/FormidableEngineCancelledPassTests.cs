@@ -3,6 +3,7 @@ using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.Time.Testing;
+using static Formidable.Blazor.Tests.Fixtures.EngineTestSync;
 
 namespace Formidable.Blazor.Tests;
 
@@ -163,18 +164,6 @@ public class FormidableEngineCancelledPassTests
             model, editContext, new FluentValidationModelValidator<Recheck>(validator),
             new ReflectionModelIntrospector(), options, time, EngineTestSync.OneAtATime());
         return new Form(engine, editContext, model, validator, time);
-    }
-
-    /// <summary>Yields until <paramref name="condition"/> holds, for at most five seconds.</summary>
-    /// <returns>Whether the condition holds at the end.</returns>
-    private static async Task<bool> UntilAsync(Func<bool> condition)
-    {
-        for (var waited = 0; waited < 500 && !condition(); waited++)
-        {
-            await Task.Delay(10);
-        }
-
-        return condition();
     }
 
     /// <summary>Counts each time the engine starts validating from rest, read from its notifications.</summary>
