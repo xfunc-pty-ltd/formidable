@@ -59,6 +59,9 @@ public class FormidableEngineCancelledPassTests
         /// <summary>The run, counting from one, that throws as it starts; none while zero.</summary>
         public int ThrowOnRun { get; set; }
 
+        /// <summary>Whether a held run throws once its gate opens, rather than answering.</summary>
+        public bool ThrowAfterHold { get; set; }
+
         private volatile TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>Lets every held run, and every later one, answer.</summary>
@@ -93,6 +96,10 @@ public class FormidableEngineCancelledPassTests
                 if (Hold)
                 {
                     await _gate.Task.WaitAsync(ct);
+                    if (ThrowAfterHold)
+                    {
+                        throw new InvalidOperationException("The async rule failed.");
+                    }
                 }
 
                 return true;
@@ -704,6 +711,256 @@ public class FormidableEngineCancelledPassTests
         form.Time.Advance(TimeSpan.FromHours(1));
         await Task.Delay(50);
         Assert.Equal(beforeCancel + 1, form.Validator.Runs);
+    }
+
+    /// <summary>Tracked options under a RefreshDebounce that never passes, on the default profiles.</summary>
+    private static FormidableOptions NeverRefreshing() => new()
+    {
+        TrackFormValidity = true,
+        RefreshDebounce = Timeout.InfiniteTimeSpan,
+    };
+
+    /// <summary>As <see cref="NeverRefreshing"/>, with LiveProfile narrowed to the draft bucket so no live check answers IsFormValid.</summary>
+    private static FormidableOptions NeverRefreshingNarrowed()
+    {
+        var options = NeverRefreshing();
+        options.LiveProfile = ValidationProfile.Draft;
+        return options;
+    }
+
+    /// <summary>Ends a held check without an answer: its rule throws once released, or its caller cancels it.</summary>
+    private static async Task EndUnansweredAsync(Form form, Task check, CancellationTokenSource cancel, bool faults)
+    {
+        if (!faults)
+        {
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => check);
+            return;
+        }
+
+        form.Validator.ReleaseHeldRuns();
+        if (check is Task<SubmitOutcome> submit)
+        {
+            Assert.NotNull((await submit).Fault);
+        }
+        else
+        {
+            await check; // a load whose rule throws still returns
+        }
+    }
+
+    /// <summary>A form whose first check ends without an answer for an empty Name, followed by a submit that ends without one too, with no edit since it began.</summary>
+    /// <param name="options">The form's options.</param>
+    /// <param name="firstIsLoad">Whether the first check is a load of an empty Name, rather than a submit the visitor empties Name during.</param>
+    /// <param name="faults">Whether both checks end because their rule throws, rather than because their callers cancel.</param>
+    /// <param name="secondInGap">Whether a StateChanged handler starts the second submit as the first check's end publishes, before that end has finished, rather than the test starting it once the first check has ended.</param>
+    /// <returns>The form, released, and the async rule's run count before the first check began.</returns>
+    private static async Task<(Form Form, int RunsBefore)> TwoUnansweredChecksAsync(
+        FormidableOptions options, bool firstIsLoad, bool faults, bool secondInGap)
+    {
+        var form = Build(options, new Recheck { Name = "Bo" });
+        Assert.True(await UntilAsync(() => form.Engine.IsFormValid));
+        var runsBefore = form.Validator.Runs;
+
+        form.Validator.Hold = true;
+        form.Validator.ThrowAfterHold = faults;
+        using var cancelFirst = new CancellationTokenSource();
+        using var cancelSecond = new CancellationTokenSource();
+        var secondToken = faults ? CancellationToken.None : cancelSecond.Token;
+        Task first;
+        if (firstIsLoad)
+        {
+            form.Model.Name = string.Empty; // written straight onto the model, as a page loading a record does
+            first = form.Engine.DiscloseLoadedValuesAsync(faults ? CancellationToken.None : cancelFirst.Token);
+        }
+        else
+        {
+            first = form.Engine.ValidateForSubmitAsync(faults ? CancellationToken.None : cancelFirst.Token);
+            form.Edit(string.Empty); // while the submit runs: its live check stands down
+        }
+
+        Task<SubmitOutcome>? second = null;
+        if (secondInGap)
+        {
+            form.Engine.StateChanged += (_, _) =>
+            {
+                if (second is null && !form.Engine.IsValidating)
+                {
+                    second = form.Engine.ValidateForSubmitAsync(secondToken);
+                }
+            };
+        }
+
+        await EndUnansweredAsync(form, first, cancelFirst, faults);
+        if (secondInGap)
+        {
+            Assert.NotNull(second);
+            Assert.True(form.Engine.IsValidating); // the second submit runs: it began before the first check finished ending
+        }
+        else
+        {
+            second = form.Engine.ValidateForSubmitAsync(secondToken);
+        }
+
+        await EndUnansweredAsync(form, second!, cancelSecond, faults);
+        form.Validator.ThrowAfterHold = false;
+        form.Validator.Release();
+        return (form, runsBefore);
+    }
+
+    // Under a RefreshDebounce that never passes, the check IsFormValid is owed as a submit or load
+    // ends without an answer starts at once, with no timer to wait on. Here a page's StateChanged
+    // handler starts a second submit as the first check's end publishes, so the owed check would
+    // start while that submit runs, and a check stands down for a submit in flight. The second
+    // submit ends without an answer too, and nothing changed while it ran, so its own end owes
+    // nothing of its own. Where the visitor edits Name, LiveProfile is narrowed to the draft bucket,
+    // so the live check given back at the second submit's end answers no IsFormValid; on the
+    // default profiles that live check answers it (the next test). A load engages no field, so one
+    // load row runs on the default profiles as well. The async rule runs once for each submit and
+    // once for the owed check.
+    // Mutation: start the owed check while the second submit runs. It stands down, nothing owes it
+    // again, and IsFormValid stays true on a model whose Name is empty.
+    [Theory]
+    [InlineData(false, false, true)] // the visitor empties Name while the first submit runs; both callers cancel
+    [InlineData(false, true, true)] // the same, and both rules throw
+    [InlineData(true, false, true)] // the first check is a load of an empty Name; both callers cancel
+    [InlineData(true, true, true)] // the same, and both rules throw
+    [InlineData(true, false, false)] // the load whose callers cancel, on the default profiles
+    public async Task Under_a_RefreshDebounce_that_never_passes_IsFormValid_answers_after_a_submit_begun_as_an_unanswered_check_ends(
+        bool firstIsLoad, bool faults, bool narrowed)
+    {
+        var options = narrowed ? NeverRefreshingNarrowed() : NeverRefreshing();
+        var (form, runsBefore) = await TwoUnansweredChecksAsync(options, firstIsLoad, faults, secondInGap: true);
+        using var disposeForm = form;
+
+        Assert.True(await UntilAsync(() => !form.Engine.IsFormValid));
+        Assert.False(form.Engine.IsFormValid);
+        Assert.Equal(runsBefore + 3, form.Validator.Runs);
+
+        form.Time.Advance(TimeSpan.FromHours(1));
+        await Task.Delay(50);
+        Assert.Equal(runsBefore + 3, form.Validator.Runs);
+    }
+
+    // The edit rows of the test above on the default profiles. The live check given back at the
+    // second submit's end runs the submit profile and answers IsFormValid, so the check the first
+    // check's end left owed stands down for it. The async rule runs once for each submit and once
+    // for that live check.
+    // Mutation: give back what the second submit displaced after its end asks about IsFormValid,
+    // rather than before. The question then finds nothing on its way and starts the probe, the
+    // given-back live check runs beside it, and the rule runs a second time.
+    [Theory]
+    [InlineData(false)] // both callers cancel
+    [InlineData(true)] // both rules throw
+    public async Task On_the_default_profiles_two_unanswered_submits_back_to_back_run_each_check_once(bool faults)
+    {
+        var (form, runsBefore) = await TwoUnansweredChecksAsync(NeverRefreshing(), firstIsLoad: false, faults, secondInGap: true);
+        using var disposeForm = form;
+
+        Assert.True(await UntilAsync(() => !form.Engine.IsFormValid));
+        Assert.True(await UntilAsync(() => !form.Engine.IsValidating));
+        Assert.False(form.Engine.IsFormValid);
+        Assert.Equal(runsBefore + 3, form.Validator.Runs);
+
+        form.Time.Advance(TimeSpan.FromHours(1));
+        await Task.Delay(50);
+        Assert.Equal(runsBefore + 3, form.Validator.Runs);
+    }
+
+    // Controls for the test above. Under the default RefreshDebounce the check the first one owes
+    // waits on its timer (or the refresh the edit armed answers in its place), so it waits out the
+    // second submit. A second submit begun once the first check has finished ending finds the owed
+    // check already started. Either way the async rule runs once for each submit and once for the
+    // check that answers IsFormValid.
+    [Theory]
+    [InlineData(false, false, false)] // the default RefreshDebounce, the second submit begun as the first check's end publishes
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)] // a RefreshDebounce that never passes, the second submit begun once the first check has ended
+    [InlineData(true, false, true)]
+    public async Task IsFormValid_answers_two_unanswered_checks_that_wait_on_a_timer_or_follow_each_other(
+        bool firstIsLoad, bool faults, bool neverRefreshing)
+    {
+        var options = neverRefreshing
+            ? NeverRefreshingNarrowed()
+            : new FormidableOptions { TrackFormValidity = true, LiveProfile = ValidationProfile.Draft };
+        var (form, runsBefore) = await TwoUnansweredChecksAsync(options, firstIsLoad, faults, secondInGap: !neverRefreshing);
+        using var disposeForm = form;
+
+        form.Time.Advance(Refresh);
+        Assert.True(await UntilAsync(() => !form.Engine.IsFormValid));
+        Assert.False(form.Engine.IsFormValid);
+        Assert.Equal(runsBefore + 3, form.Validator.Runs);
+
+        form.Time.Advance(TimeSpan.FromHours(1));
+        await Task.Delay(50);
+        Assert.Equal(runsBefore + 3, form.Validator.Runs);
+    }
+
+    // As the first of these tests, but the second submit lands. Its answer is IsFormValid's for the
+    // model as it stands, so the check the first one owed has nothing left to answer. This validator
+    // can reuse no stored answer, so a check behind the landing would run the async rule a second
+    // time.
+    // Mutation: keep the owed check for the second submit's end, but leave it standing when that
+    // submit's answer is adopted. The check then runs behind the landing, and the rule runs a second
+    // time.
+    [Theory]
+    [InlineData(false)] // the visitor empties Name while the first submit runs, and its caller cancels it
+    [InlineData(true)] // the first check is a load of an empty Name, and its caller cancels it
+    public async Task Under_a_RefreshDebounce_that_never_passes_a_submit_begun_as_an_unanswered_check_ends_and_that_lands_runs_nothing_more(
+        bool firstIsLoad)
+    {
+        var model = new Recheck { Name = "Bo" };
+        var editContext = new EditContext(model);
+        var validator = new HeldAsyncValidator();
+        var whole = new WholeProfileValidator(new FluentValidationModelValidator<Recheck>(validator));
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<Recheck>(
+            model, editContext, whole, new ReflectionModelIntrospector(),
+            NeverRefreshingNarrowed(), time, EngineTestSync.OneAtATime());
+        Assert.True(await UntilAsync(() => engine.IsFormValid));
+
+        validator.Hold = true;
+        using var cancel = new CancellationTokenSource();
+        Task first;
+        if (firstIsLoad)
+        {
+            model.Name = string.Empty; // written straight onto the model, as a page loading a record does
+            first = engine.DiscloseLoadedValuesAsync(cancel.Token);
+        }
+        else
+        {
+            first = engine.ValidateForSubmitAsync(cancel.Token);
+            model.Name = string.Empty;
+            editContext.NotifyFieldChanged(new FieldIdentifier(model, nameof(Recheck.Name))); // while the submit runs
+        }
+
+        Task<SubmitOutcome>? second = null;
+        engine.StateChanged += (_, _) =>
+        {
+            if (second is null && !engine.IsValidating)
+            {
+                second = engine.ValidateForSubmitAsync();
+            }
+        };
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        Assert.NotNull(second);
+        Assert.True(engine.IsValidating); // the second submit runs: it began before the first check finished ending
+
+        var runs = validator.Runs;
+        var calls = whole.Calls; // the second submit's own call is behind these
+        validator.Release();
+        Assert.False((await second!).CanProceed);
+        Assert.True(await UntilAsync(() => !engine.IsValidating));
+        Assert.False(engine.IsFormValid);
+
+        time.Advance(TimeSpan.FromHours(1));
+        await Task.Delay(50);
+        Assert.Equal(runs, validator.Runs);
+        Assert.Equal(calls, whole.Calls);
+        Assert.False(engine.IsFormValid);
     }
 
     // The re-check the cancelled submit cancelled was going to answer IsFormValid. The page sets

@@ -420,8 +420,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // ScheduleRefresh or RecheckHeldBackAnswers arms, cleared as the refresh timer fires.
     private bool _refreshArmed;
 
-    // Set by a landing whose answer predates an edit (see AdoptFormValidity), so the end of its
-    // pass asks whether anything still answers that edit's IsFormValid, and checks if nothing does.
+    // Set by a landing whose answer predates an edit (see AdoptFormValidity), or by a submit or
+    // load that gives back what it displaced where IsFormValid can be stale (GiveBack), so the end
+    // of its pass asks whether anything still answers the latest edit's IsFormValid, and checks if
+    // nothing does. Kept past that end when a submit or load begun since would stand the check
+    // down (RecheckFormValidity), so that pass's end asks again; a landing that adopts IsFormValid
+    // clears it, since that answer settles it.
     private bool _validityRecheckOwed;
 
     // IsFormValid's value. The public getter carries the untracked-read note, so every read the
@@ -2796,11 +2800,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             && _options.LiveDebounce is { } liveDebounce
             && UsableWait(liveDebounce) is not null);
 
-    /// <summary>Checks <see cref="IsFormValid"/> for the latest edit behind a landing that predates it, or behind an unanswered submit or load: through the validity check while <see cref="FormidableOptions.RefreshDebounce"/> can pass, else by starting the probe at once; a disposed engine checks nothing.</summary>
+    /// <summary>Checks <see cref="IsFormValid"/> behind a landing an edit outdated, or an unanswered submit or load: through the validity check while <see cref="FormidableOptions.RefreshDebounce"/> can pass, else by starting the probe, or by leaving it to the end of a submit or load in flight.</summary>
     /// <param name="owedByLoad">Whether the check answers a load's own change, which an answered submit does not stand the check down for.</param>
     // The validity check is the debounced route, so a burst of edits behind a landing is one
     // check. At a RefreshDebounce that never passes its timer never fires, which is why the probe
-    // starts directly there instead, and the probe has no answered-submit stand-down to pass.
+    // starts directly there instead, and the probe has no answered-submit stand-down to pass. A
+    // disposed engine checks nothing.
+    //
+    // The probe stands down for a submit or load in flight, as the timer's fire waits for one. A
+    // submit or load can have begun since the pass that owes this check ended, from a handler of
+    // that end's notification or a work item queued before this dispatch. So the owe is kept for
+    // that pass's end instead, which asks again; if it lands an answer for the latest edit, its
+    // adoption settles the owe (AdoptFormValidity).
     private void RecheckFormValidity(bool owedByLoad = false)
     {
         if (_disposed)
@@ -2814,6 +2825,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // (EditValidityAnswered counts both), so the flag can describe no other check.
             _validityCheckOwedByLoad = owedByLoad;
             ScheduleValidityCheck();
+            return;
+        }
+
+        if (SubmitInFlight || LoadInFlight)
+        {
+            _validityRecheckOwed = true;
             return;
         }
 
@@ -3321,7 +3338,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // it would stand in for the check a later load owes as it ends unanswered, since
     // EditValidityAnswered counts an armed check. Once a submit has answered, that check's fire
     // stands down, and the load's own change would go unanswered. An outdated answer keeps the
-    // check, as that edit's answer.
+    // check, as that edit's answer. For the same reason an adopted answer settles the check owed
+    // at a pass's end (_validityRecheckOwed), whether an earlier pass's end kept it for this pass
+    // or a pass still ending set it.
     private bool AdoptFormValidity(ValidationReport report, int beganAtEditStamp)
     {
         if (!_options.TrackFormValidity)
@@ -3336,6 +3355,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         StandDownValidityCheck();
+        _validityRecheckOwed = false;
         _formValidityStamp++;
 
         // Written with no notification of its own. Every caller is a landing's verdict apply, and

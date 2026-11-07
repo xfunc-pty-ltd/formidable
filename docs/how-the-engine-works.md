@@ -690,6 +690,10 @@ neither can reuse what the other is still computing. So an async rule both of th
 has answered yet, runs once in each, as it does for an edit made just after the landing, whose
 narrowed live pass and probe start together.
 
+A submit or load can begin before the dispatch that gives the fields back. The given-back pass
+then stands down for it, and the owed check waits for its end instead of starting the probe. If
+that pass lands an answer for the latest edit, neither runs; otherwise both run at its end.
+
 A submit that lands after checking again owes no such check, since its answer is for the latest
 edit. A load never checks again. It gives back nothing at a landing, because the live pass that
 follows it answers every engaged field.
@@ -723,9 +727,16 @@ before it. A check where `IsFormValid` is current would only run an async rule a
 The owed check stands down when something already on its way answers the latest edit, the
 restarted refresh among them. Under a `RefreshDebounce` that never passes, the timer never
 fires, so the owed check starts the probe at once, and the probe has no answered-submit
-stand-down. While `RefreshDebounce` can pass, the owed check goes through the validity timer,
-and every stand-down its fire tests applies to it
-([the probe's section](#the-trackformvalidity-probe)), with one difference.
+stand-down.
+
+The probe does stand down for a submit or load in flight, and one can begin between the dispatch
+that ends a submit or load and the one after it, which owes the check. A handler of the end's
+notification can start it, or a work item queued before that dispatch. The owe then passes to
+that submit's or load's end, which asks again, and an answer it adopts settles the owe.
+
+While `RefreshDebounce` can pass, the owed check goes through the validity timer, and every
+stand-down its fire tests applies to it ([the probe's section](#the-trackformvalidity-probe)),
+with one difference.
 
 An answered submit stands the validity check down because each later edit arms the refresh. A
 load's own change arms none, so the check owed for a record holding a load passes that test until
@@ -1313,6 +1324,9 @@ The check behind an outdated landing goes through the validity timer while `Refr
 pass, so a burst of edits behind a landing is one check, and starts the probe at once otherwise,
 since a timer at a wait that never passes never fires. Like the deferred fires' arm, it runs after
 the landing's dispatch.
+
+A submit or load begun before the dispatch that owes this check would stand its probe down, so the
+check waits for that pass's end instead ([supersession and deferral](#supersession-and-deferral)).
 
 Probes are never cancelled short of disposal, so under a slow async rule, a narrowed live pass
 and no `LiveDebounce` several can be in flight together, each answering for the model state it

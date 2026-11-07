@@ -281,9 +281,12 @@ re-check the edit brings, or the validity check a finite `LiveDebounce` window r
 
 Some edits made during a load, or during a submit's third check, bring no check of their own. Where
 `LiveProfile` narrows and `LiveDebounce` is unset, an edit during a load before any submit or server
-reply brings none. A validity check then runs for it `RefreshDebounce` after the load ends. When
-`RefreshDebounce` never passes, the validity check for an edit that brings no check of its own runs
-as the submit or load ends.
+reply brings none. A validity check then runs for it `RefreshDebounce` after the load ends.
+
+When `RefreshDebounce` never passes, the validity check for an edit that brings no check of its own
+runs as the submit or load ends. If another submit or load has started by then (from a
+`StateChanged` handler as the first one ends, say), the check waits for that one to end instead.
+The validity check then runs only if the later submit or load has not answered for your latest edit.
 
 Off by default because a form with nothing reading `IsFormValid` gets nothing for the work.
 
