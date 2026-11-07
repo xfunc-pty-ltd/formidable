@@ -55,10 +55,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // _currentPass with
     // _currentPassScope, which the pass that recorded them clears beside
     // IsValidating, the scope also as a rendered-field-set change reads a running submit's
-    // again (RereadSubmitScope). _displaced is opened and extended on the caller's context as a
-    // submit or load begins, and as a live check stands down for one (on the dispatcher for the
-    // load's own follow-up check and a check given back), and is dropped or detached on the
-    // dispatcher as that submit or load ends.
+    // again (RereadSubmitScope). _displaced is opened or taken over on the caller's context as a
+    // submit or load begins, and extended as a live check stands down for one (on the dispatcher
+    // for the load's own follow-up check and a check given back), and is dropped or detached on
+    // the dispatcher as that submit or load ends.
     // The running validity check's marker (_validityCheckRunning, _validityCheckStartedAt),
     // _submitAnswered, _validityCheckOwedByLoad and _giveBacksPending move on the dispatcher, with
     // the one exception the end of this paragraph names: the marker as the timer fires and in the
@@ -2400,8 +2400,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         var begun = false;
 
         // How many more times a submit checks again before it reports an answer an edit made
-        // while it ran has outdated (see the verdict dispatch). No other kind checks again.
-        var restartsLeft = kind == PassKind.Submit ? SubmitRestarts : 0;
+        // while it ran has outdated (see the verdict dispatch). Read only for a submit: no other
+        // kind checks again.
+        var restartsLeft = SubmitRestarts;
 
         try
         {
@@ -2622,10 +2623,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     {
                         if (kind == PassKind.Submit
                             && editStamp != _editStamp
-                            && _displaced is { HeldBackFields.Count: > 0 } displaced)
+                            && _displaced is { StoodDownFields.Count: > 0 } displaced)
                         {
                             owed = new DisplacedChecks { OpenedAtEditStamp = displaced.OpenedAtEditStamp };
-                            owed.HeldBackFields.UnionWith(displaced.HeldBackFields);
+                            owed.StoodDownFields.UnionWith(displaced.StoodDownFields);
                             _giveBacksPending++;
                         }
 
@@ -2659,13 +2660,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // dispatch has landed and ended the pass itself. It reaches one step further back than
             // a per-kind hand-roll needs to: the start notification is inside the try as well, so
             // a subscriber throwing from there leaves the flag cleared and costs one extra round,
-            // rather than leaving it stuck on. A pass that threw before its start notification ran
-            // (the cancel above, or its scope) has not raised the flag, and while it is current the
-            // flag reads true only if the pass it superseded was still validating, so the
-            // descriptor is tested too. The end below still runs only while the pass is current.
+            // rather than leaving it stuck on. The descriptor decides, not the flag. A pass that
+            // threw before its start notification ran (the cancel above, or its scope) has not
+            // raised the flag. The flag also stays raised while a newer pass validates, and the
+            // end's own version test would then skip this pass anyway.
             try
             {
-                if (IsValidating || _currentPass?.Version == pass.Version)
+                if (_currentPass?.Version == pass.Version)
                 {
                     await EndPassWithoutLandingAsync(pass, () =>
                     {
@@ -2790,9 +2791,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // IsFormValid is owed a check only where it can be stale, because a check where it is not
     // would run an async rule again for an answer already given. It can be stale in four cases:
     // a load's own change, which no edit armed anything for; a cancelled re-check, which was
-    // going to answer it; an edit made since the record opened, held back or not; and a
-    // cancelled live check that runs the submit profile, which was going to answer it too. Any
-    // other change has its own answer: its live check where that runs the submit profile, a
+    // going to answer it; an edit made since the record opened, whether or not its live check
+    // stood down; and a cancelled live check that runs the submit profile, which was going to
+    // answer it too.
+    // Any other change has its own answer: its live check where that runs the submit profile, a
     // probe the edit or its window started beside a narrowed one, a validity check or re-check
     // it armed, or a landing that adopted it. A cancelled narrowed live check had a probe started
     // beside it, and a landed load already answered. The owed check then takes the existing
@@ -2815,7 +2817,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         var live = new HashSet<FieldIdentifier>(owed.LiveFields);
-        live.UnionWith(owed.HeldBackFields);
+        live.UnionWith(owed.StoodDownFields);
         live.IntersectWith(_engagedFields);
         if (live.Count > 0)
         {
@@ -2918,7 +2920,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // that end's notification or a work item queued before this dispatch. So the owe is kept for
     // that pass's end instead, which asks again; if it lands an answer for the latest edit, its
     // adoption settles the owe (AdoptFormValidity).
-    private void RecheckFormValidity(bool owedByLoad = false)
+    private void RecheckFormValidity(bool owedByLoad)
     {
         if (_disposed)
         {
@@ -3156,8 +3158,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // again, and the check that answers in its place answers this field too, so its
             // landing drops the record. Once the restarts are spent, a blocking answer that an
             // edit outdated lands and runs this check after all, since the answer is for the
-            // value before that edit; a load's landing runs a live check of its own instead.
-            (_displaced ??= new DisplacedChecks { OpenedAtEditStamp = _editStamp }).HeldBackFields.UnionWith(triggeringFields);
+            // value before that edit; a load's landing runs a live check of its own instead. The
+            // record is there: BeginPass opens it before it makes the submit or load current, and
+            // the dispatch that ends the pass drops it only after EndPass has retired the pass.
+            _displaced!.StoodDownFields.UnionWith(triggeringFields);
             return;
         }
 
@@ -5531,7 +5535,7 @@ internal sealed class DisplacedChecks
     public HashSet<FieldIdentifier> LiveFields { get; } = [];
 
     /// <summary>The fields whose live check stood down for the submit or load while it ran.</summary>
-    public HashSet<FieldIdentifier> HeldBackFields { get; } = [];
+    public HashSet<FieldIdentifier> StoodDownFields { get; } = [];
 
     /// <summary>Whether a load opened the record or took it over: its declared change moved the edit stamp with no edit behind it, so no refresh was armed to answer it.</summary>
     public bool LoadBegan { get; set; }
