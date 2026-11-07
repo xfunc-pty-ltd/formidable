@@ -159,10 +159,11 @@ public class FormidableEngineAsyncTests
     // Disposal moves the engine on from the pass in flight, whether or not its rule reads the
     // token the disposal cancels. This rule ignores it and passes, so only the disposal can keep
     // the answer from landing.
-    // Mutation: leave the version alone in Dispose, and the submit reports CanProceed=true, and
-    // the load lands and then throws ObjectDisposedException from the live check it starts on
-    // the disposed engine.
-    // Mutation: leave the pass unretired in Dispose, and IsValidating reads true for good.
+    // Mutation: leave the version alone in Dispose, and both rows fail: the submit reports
+    // CanProceed=true, and the load lands and marks the loaded field touched. The load starts no
+    // live check after it, because its last step tests the disposal first.
+    // Mutation: leave the pass unretired in Dispose, and both rows fail: IsValidating reads true
+    // for good.
     [Theory]
     [InlineData("submit")]
     [InlineData("load")]

@@ -176,7 +176,9 @@ public class FormidableEngineHandlerThrowTests : BunitContext
     public enum WorkAfterTheThrow
     {
         // LiveDebounce, TrackFormValidity and a narrowed LiveProfile: the validity check the
-        // window's fire starts throws, and the fire goes on to start its live check.
+        // window's fire starts throws, and the fire then starts its live check. That live check is
+        // not what this row pins: of the two mutations named on the test, only dropping the
+        // hand-off fails it, with the boundary left empty.
         LiveDebounceFire,
 
         // TrackFormValidity and a narrowed LiveProfile: page code outside any DOM event commits a
