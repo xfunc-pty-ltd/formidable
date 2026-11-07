@@ -25,7 +25,7 @@ public static class FormidableCss
     /// <param name="hasWarnings">Whether the field has a warning.</param>
     /// <param name="hasInfos">Whether the field has an info.</param>
     /// <param name="wouldPassSubmit">Whether the field would pass submit.</param>
-    /// <param name="pending">Whether a check covering the field is running.</param>
+    /// <param name="pending">Whether a running check marks the field as checking.</param>
     /// <param name="classes">The class names to pick among.</param>
     /// <returns>The class string; empty when no tier applies and nothing is pending.</returns>
     // Invalid is ungated so a field the visitor must still fix never reads as merely advisory,

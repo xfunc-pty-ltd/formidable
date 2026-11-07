@@ -15,6 +15,6 @@ public sealed class FormidableCssClasses
     /// <summary>The class for a touched or modified field that carries no issue of any severity and would pass submit (<see cref="FieldState.WouldPassSubmit"/>). Defaults to <c>"formidable-valid"</c>.</summary>
     public string Valid { get; set; } = "formidable-valid";
 
-    /// <summary>The class appended while a check covering the field is running. Defaults to <c>"formidable-pending"</c>.</summary>
+    /// <summary>The class appended while a running check marks the field as checking. Defaults to <c>"formidable-pending"</c>.</summary>
     public string Pending { get; set; } = "formidable-pending";
 }

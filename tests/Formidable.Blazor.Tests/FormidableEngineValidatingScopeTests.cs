@@ -1496,11 +1496,330 @@ public class FormidableEngineValidatingScopeTests
         Assert.Equal(2, gates.Started("B") - before);
     }
 
+    // A submit's "checking" covers the fields its rules name on the form as it stands, so a
+    // row added while the submit runs lights as the rows it found at the start do, until the
+    // answer lands. The one publish the move makes names the new row's field, which is what
+    // re-renders the kit input on it.
+    // Mutation: drop the re-read in OnRenderedFieldsChanged; the new row never reads checking.
+    [Fact]
+    public async Task A_row_added_while_a_submit_checks_shows_checking_until_the_answer_lands()
+    {
+        var validator = new HeldSubmitWithRows();
+        var first = new EngineItem { Sku = "A-1" };
+        var order = new EngineOrder { Customer = new EngineCustomer { Name = "Ada" }, Items = [first] };
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, new EditContext(order), new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider(), dispatch);
+        using var firstRow = engine.Registry.Register(Sku(first));
+
+        Task<SubmitOutcome>? submit = null;
+        await OnDispatcher(dispatch, () => submit = engine.ValidateForSubmitAsync());
+        Assert.True(engine.GetFieldState(Sku(first)).IsValidating);
+
+        var added = new EngineItem();
+        var publishes = new List<FormidableStateChangedEventArgs>();
+        engine.StateChanged += (_, e) => publishes.Add(e);
+        FieldRegistration? addedRow = null;
+        await OnDispatcher(dispatch, () =>
+        {
+            order.Items.Add(added);
+            addedRow = engine.Registry.Register(Sku(added));
+            engine.OnRenderedFieldsChanged();
+        });
+
+        Assert.True(engine.GetFieldState(Sku(added)).IsValidating);
+        Assert.True(engine.GetFieldState(Sku(first)).IsValidating);
+        Assert.True(Assert.Single(publishes).Includes(Sku(added)));
+
+        validator.Gate.SetResult();
+        await submit!;
+        Assert.False(engine.GetFieldState(Sku(added)).IsValidating);
+        Assert.False(engine.GetFieldState(Sku(first)).IsValidating);
+        addedRow!.Dispose();
+    }
+
+    // The scope shrinks as well as grows: a row removed while the submit runs takes its
+    // "checking" with it, and the rows left keep theirs until the answer lands.
+    // Mutation: drop the re-read in OnRenderedFieldsChanged; the removed row's field still reads checking.
+    [Fact]
+    public async Task A_row_removed_while_a_submit_checks_stops_checking_and_the_rows_left_keep_it()
+    {
+        var validator = new HeldSubmitWithRows();
+        var removed = new EngineItem { Sku = "A-1" };
+        var kept = new EngineItem { Sku = "B-2" };
+        var order = new EngineOrder { Customer = new EngineCustomer { Name = "Ada" }, Items = [removed, kept] };
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, new EditContext(order), new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider(), dispatch);
+        var removedRow = engine.Registry.Register(Sku(removed));
+        using var keptRow = engine.Registry.Register(Sku(kept));
+
+        Task<SubmitOutcome>? submit = null;
+        await OnDispatcher(dispatch, () => submit = engine.ValidateForSubmitAsync());
+        Assert.True(engine.GetFieldState(Sku(removed)).IsValidating);
+        Assert.True(engine.GetFieldState(Sku(kept)).IsValidating);
+
+        await OnDispatcher(dispatch, () =>
+        {
+            order.Items.Remove(removed);
+            removedRow.Dispose();
+            engine.OnRenderedFieldsChanged();
+        });
+
+        Assert.False(engine.GetFieldState(Sku(removed)).IsValidating);
+        Assert.True(engine.GetFieldState(Sku(kept)).IsValidating);
+        Assert.True(engine.IsValidating);
+
+        validator.Gate.SetResult();
+        await submit!;
+        Assert.False(engine.GetFieldState(Sku(kept)).IsValidating);
+    }
+
+    // An owner replaced while the submit runs (a nested object swapped, its inputs keyed
+    // by it so they mount again) moves "checking" to the new owner's fields.
+    // Mutation: drop the re-read in OnRenderedFieldsChanged; the new owner's field never reads checking.
+    [Fact]
+    public async Task An_owner_replaced_while_a_submit_checks_shows_checking_on_the_new_owner()
+    {
+        var validator = new HeldSubmitWithRows();
+        var replaced = new EngineCustomer { Name = "Ada" };
+        var order = new EngineOrder { Customer = replaced };
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, new EditContext(order), new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider(), dispatch);
+        var replacedName = engine.Registry.Register(Name(replaced));
+
+        Task<SubmitOutcome>? submit = null;
+        await OnDispatcher(dispatch, () => submit = engine.ValidateForSubmitAsync());
+        Assert.True(engine.GetFieldState(Name(replaced)).IsValidating);
+
+        var replacement = new EngineCustomer();
+        FieldRegistration? replacementName = null;
+        await OnDispatcher(dispatch, () =>
+        {
+            order.Customer = replacement;
+            replacedName.Dispose();
+            replacementName = engine.Registry.Register(Name(replacement));
+            engine.OnRenderedFieldsChanged();
+        });
+
+        Assert.True(engine.GetFieldState(Name(replacement)).IsValidating);
+        Assert.False(engine.GetFieldState(Name(replaced)).IsValidating);
+
+        validator.Gate.SetResult();
+        await submit!;
+        Assert.False(engine.GetFieldState(Name(replacement)).IsValidating);
+        replacementName!.Dispose();
+    }
+
+    // A row the model gains that the page does not render (a long list beyond the view, say) is
+    // a field the engine holds nothing for, so no publish names it. Its "checking" moves with a
+    // form-level change instead, as the submit's start and end move such a field's. A move that
+    // changes none of the submit's fields publishes nothing for it.
+    // Mutations: leave the scope move out of FormChanged (the first assertion on the publish
+    // fails); publish whenever a submit is checking (the second Single fails).
+    [Fact]
+    public async Task A_row_the_page_does_not_render_moves_with_a_form_level_change_while_a_submit_checks()
+    {
+        var validator = new HeldSubmitWithRows();
+        var first = new EngineItem { Sku = "A-1" };
+        var order = new EngineOrder { Customer = new EngineCustomer { Name = "Ada" }, Items = [first] };
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, new EditContext(order), new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider(), dispatch);
+        using var firstRow = engine.Registry.Register(Sku(first));
+
+        Task<SubmitOutcome>? submit = null;
+        await OnDispatcher(dispatch, () => submit = engine.ValidateForSubmitAsync());
+
+        var offScreen = new EngineItem();
+        var publishes = new List<FormidableStateChangedEventArgs>();
+        engine.StateChanged += (_, e) => publishes.Add(e);
+        await OnDispatcher(dispatch, () =>
+        {
+            order.Items.Add(offScreen);
+            engine.OnRenderedFieldsChanged();
+        });
+
+        Assert.True(engine.GetFieldState(Sku(offScreen)).IsValidating);
+        Assert.True(Assert.Single(publishes).FormChanged);
+
+        await OnDispatcher(dispatch, engine.OnRenderedFieldsChanged);
+        Assert.Single(publishes);
+
+        validator.Gate.SetResult();
+        await submit!;
+        Assert.False(engine.GetFieldState(Sku(offScreen)).IsValidating);
+    }
+
+    // A submit that a newer one supersedes keeps the scope it had. A rule's cancellation callback
+    // that adds a row runs inside the newer submit's cancel of the older one, before the newer
+    // one has a scope of its own. The move it makes reads nothing again for the older submit and
+    // publishes nothing, and the newer submit's scope, read after the callback, covers the row.
+    // Mutation: read the scope again whenever a submit is current, recorded or not; the row
+    // reads checking inside the callback and the move publishes.
+    [Fact]
+    public async Task A_move_inside_a_newer_submits_cancel_leaves_the_older_submits_scope_alone()
+    {
+        var validator = new HeldSubmitWithRows();
+        var first = new EngineItem { Sku = "A-1" };
+        var order = new EngineOrder { Customer = new EngineCustomer { Name = "Ada" }, Items = [first] };
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, new EditContext(order), new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider(), dispatch);
+        using var firstRow = engine.Registry.Register(Sku(first));
+
+        Task<SubmitOutcome>? older = null;
+        await OnDispatcher(dispatch, () => older = engine.ValidateForSubmitAsync());
+        Assert.True(await UntilAsync(dispatch, () => validator.Waiting == 1));
+
+        var added = new EngineItem();
+        FieldRegistration? addedRow = null;
+        var publishes = new List<FormidableStateChangedEventArgs>();
+        bool? checkingInsideCancel = null;
+        int? publishedInsideCancel = null;
+        validator.Cancelled = () =>
+        {
+            validator.Cancelled = null;
+            order.Items.Add(added);
+            addedRow = engine.Registry.Register(Sku(added));
+            engine.OnRenderedFieldsChanged();
+            checkingInsideCancel = engine.GetFieldState(Sku(added)).IsValidating;
+            publishedInsideCancel = publishes.Count;
+        };
+        engine.StateChanged += (_, e) => publishes.Add(e);
+
+        Task<SubmitOutcome>? newer = null;
+        await OnDispatcher(dispatch, () => newer = engine.ValidateForSubmitAsync());
+
+        Assert.False(checkingInsideCancel);
+        Assert.Equal(0, publishedInsideCancel);
+        Assert.True(engine.GetFieldState(Sku(added)).IsValidating);
+
+        validator.Gate.SetResult();
+        await newer!;
+        await older!;
+        Assert.False(engine.GetFieldState(Sku(added)).IsValidating);
+        addedRow!.Dispose();
+    }
+
+    // A move that drops a removed row's message and changes the submit's fields publishes once:
+    // the rebuild that drops the message carries the submit's new fields, so nothing follows it.
+    // Mutation: publish the scope on its own even after a rebuild; the move publishes twice.
+    [Fact]
+    public async Task A_move_that_drops_a_message_and_moves_the_submits_fields_publishes_once()
+    {
+        var validator = new HeldSubmitWithRows();
+        var removed = new EngineItem { Sku = "A-1" };
+        var kept = new EngineItem { Sku = "B-2" };
+        var order = new EngineOrder { Customer = new EngineCustomer { Name = "Ada" }, Items = [removed, kept] };
+        var editContext = new EditContext(order);
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions { LiveProfile = ValidationProfile.Draft },
+            new FakeTimeProvider(), dispatch);
+        var removedRow = engine.Registry.Register(Sku(removed));
+        using var keptRow = engine.Registry.Register(Sku(kept));
+
+        await OnDispatcher(dispatch, () =>
+        {
+            removed.Sku = "TOO-LONG";
+            editContext.NotifyFieldChanged(Sku(removed));
+        });
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating && engine.GetIssues(Sku(removed)).Count == 1));
+
+        Task<SubmitOutcome>? submit = null;
+        await OnDispatcher(dispatch, () => submit = engine.ValidateForSubmitAsync());
+        Assert.True(engine.GetFieldState(Sku(removed)).IsValidating);
+
+        var publishes = new List<FormidableStateChangedEventArgs>();
+        engine.StateChanged += (_, e) => publishes.Add(e);
+        await OnDispatcher(dispatch, () =>
+        {
+            order.Items.Remove(removed);
+            removedRow.Dispose();
+            engine.OnRenderedFieldsChanged();
+        });
+
+        Assert.True(Assert.Single(publishes).Includes(Sku(removed)));
+        Assert.Empty(engine.GetIssues(Sku(removed)));
+        Assert.False(engine.GetFieldState(Sku(removed)).IsValidating);
+        Assert.True(engine.GetFieldState(Sku(kept)).IsValidating);
+
+        validator.Gate.SetResult();
+        await submit!;
+    }
+
+    // Only a submit's scope is read again as the page's fields change. A live check keeps the
+    // field it was started for, and a load keeps lighting no field, however many fields its
+    // profile declares.
+    // Mutation: record every pass's begin for the re-read, not a submit's alone; the move lights
+    // B under the live check, and A and B under the load.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_move_while_a_live_check_or_a_load_runs_lights_no_field_its_check_left_out(bool load)
+    {
+        var gates = new FieldGates();
+        var model = new Pair();
+        var editContext = new EditContext(model);
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new OneAsyncRule(gates)),
+            new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider(), dispatch);
+        var a = new FieldIdentifier(model, nameof(Pair.A));
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+        using var aRow = engine.Registry.Register(a);
+        using var bRow = engine.Registry.Register(b);
+
+        Task? loading = null;
+        await OnDispatcher(dispatch, () =>
+        {
+            if (load)
+            {
+                loading = engine.DiscloseLoadedValuesAsync();
+                return;
+            }
+
+            model.A = "taken";
+            editContext.NotifyFieldChanged(a);
+        });
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("A") == 1));
+        Assert.Equal(!load, engine.GetFieldState(a).IsValidating);
+        Assert.False(engine.GetFieldState(b).IsValidating);
+
+        await OnDispatcher(dispatch, engine.OnRenderedFieldsChanged);
+
+        Assert.True(engine.IsValidating);
+        Assert.Equal(!load, engine.GetFieldState(a).IsValidating);
+        Assert.False(engine.GetFieldState(b).IsValidating);
+
+        gates.Open("A");
+        if (loading is not null)
+        {
+            await loading;
+        }
+
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+    }
+
     private static readonly TimeSpan PastRefresh = new FormidableOptions().RefreshDebounce + TimeSpan.FromMilliseconds(1);
 
     private const string ATaken = "A taken";
     private const string BTaken = "B taken";
     private const string ARequired = "A is required";
+
+    /// <summary>The SKU field of <paramref name="item"/>.</summary>
+    private static FieldIdentifier Sku(EngineItem item) => new(item, nameof(EngineItem.Sku));
+
+    /// <summary>The name field of <paramref name="customer"/>.</summary>
+    private static FieldIdentifier Name(EngineCustomer customer) => new(customer, nameof(EngineCustomer.Name));
 
     /// <summary>Runs <paramref name="work"/> on the engine's dispatch, as the renderer runs a page's event.</summary>
     private static Task OnDispatcher(Func<Func<Task>, Task> dispatch, Action work) =>
@@ -1691,6 +2010,43 @@ public class FormidableEngineValidatingScopeTests
 
         protected override void ConfigureSubmitRules()
         {
+        }
+    }
+
+    /// <summary>An async rule on <see cref="EngineOrder.Description"/> held on <see cref="Gate"/>, beside a presence rule on each row's SKU and one on the customer's name, all in the submit bucket, so a submit stays open while its rows and its customer change. A draft rule caps a SKU at three characters.</summary>
+    private sealed class HeldSubmitWithRows : DraftSubmitValidator<EngineOrder>
+    {
+        private int _waiting;
+
+        public TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Called when the token of a held run is cancelled, read as it fires.</summary>
+        public Action? Cancelled { get; set; }
+
+        /// <summary>How many runs of the held rule are waiting on <see cref="Gate"/>, each counted once its cancellation callback is registered.</summary>
+        public int Waiting => Volatile.Read(ref _waiting);
+
+        protected override void ConfigureDraftRules() =>
+            RuleForEach(x => x.Items).ChildRules(item => item.RuleFor(i => i.Sku).MaximumLength(3));
+
+        protected override void ConfigureSubmitRules()
+        {
+            RuleFor(x => x.Description).MustAsync(async (_, ct) =>
+            {
+                ct.Register(() => Cancelled?.Invoke());
+                Interlocked.Increment(ref _waiting);
+                try
+                {
+                    await Gate.Task.WaitAsync(ct);
+                    return true;
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _waiting);
+                }
+            });
+            RuleForEach(x => x.Items).ChildRules(item => item.RuleFor(i => i.Sku).NotEmpty());
+            RuleFor(x => x.Customer!.Name).NotEmpty().When(x => x.Customer is not null);
         }
     }
 }

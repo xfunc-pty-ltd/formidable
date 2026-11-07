@@ -135,10 +135,21 @@ disarms the gate. A submit reads no stored verdict: it executes its whole select
 
 Its pending scope is the fields the submit profile declares (`GetDeclaredFieldPaths`), resolved as
 the required indicator's map resolves them. Each collection template expands to the rows the model
-holds as the submit begins (to none for a collection whose walk throws), and a submit that checks
-again keeps that scope. A validator that cannot be inspected (no `IRuleInspectingValidator<TModel>`,
-or `CanInspectRules` false), or whose selection throws, leaves the scope null, which lights every
-field.
+holds as the scope is read (to none for a collection whose walk throws). A validator that cannot be
+inspected (no `IRuleInspectingValidator<TModel>`, or `CanInspectRules` false), or whose selection
+throws, leaves the scope null, which lights every field.
+
+The scope is read as the submit begins, and again at each move in the rendered field set while the
+submit is current, under the profile the submit runs. A row added or removed, or an owner replaced
+and rendered again, moves it. A submit that checks again after an edit keeps the scope it holds.
+
+A read at a move waits for the submit's begin to publish its scope, so a submit superseded inside a
+newer pass's cancel keeps the scope it had.
+
+A move that changes the scope publishes once: through the store rebuild the move makes, when it
+makes one, and otherwise on its own, as a pass's begin does. The publish names each rendered field
+whose pending state moved, and raises `FormChanged`, because the key set leaves a submit's scope out
+([how a publish reaches the kit](#how-a-publish-reaches-the-kit)).
 
 No declared path names the model-level field, so under an inspecting validator it is not pending
 during a submit. The form-wide signal is `IsValidating`.
@@ -335,6 +346,9 @@ whatever the form's history. When the move turns the gate on or off, it republis
 store as well ([the gate latch](#the-gate-latch)). When a field has departed, engaged or not, it
 moves the departure count once, which decides whether a server reply gives way to that refresh
 ([what replaces the server's answer](#what-replaces-the-servers-answer)).
+
+While a submit is running, the call reads that submit's pending scope again first, so the rows it
+lights follow the page ([the pass kinds](#the-pass-kinds), under **Submit**).
 
 The engine does not hear the registry's `Changed` event, so the root makes that call.
 `FormidableValidator` makes it from a continuation posted past the render batch that changed a

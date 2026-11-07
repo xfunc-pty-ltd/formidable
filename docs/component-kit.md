@@ -474,7 +474,7 @@ where `min` and `max` splat through `AdditionalAttributes` untouched.
 | `OnParametersSet` is where the field resolves, registers, and binds the engine subscription | Call `base` from any override, or the control registers nothing and never re-renders as checks start and finish. |
 | `OnAfterRender` is where the row-key checks (`VerifyRowKeys` and `ReportStaleRegistrations`, which catch a component whose accessor no longer names the field it registered) judge what the last parameter set found | Call `base` from any override of the synchronous `OnAfterRender`, or both checks fall silent for the control. |
 | `Dispose` is non-virtual and always releases the registration and the subscription | Override `DisposeCore` for resources of your own. A control implementing `IAsyncDisposable` has to call `Dispose()` from its `DisposeAsync`, since Blazor calls only the async overload when a component implements both. |
-| `ObservesEngineState` and `OnEngineStateChanged` are why a control re-renders as checks on its field start and finish | Leave them alone unless you mean it: `false` freezes the state class, `aria-invalid`, `aria-describedby` and `aria-required` at whatever the last render gave them. The base re-renders only for a change whose `Includes` names the control's field, with the row-key checks on or off. Override `OnEngineStateChanged` and call `base` to keep that field-scoped re-render, or call `StateHasChanged` yourself for a control that must redraw on every change. Kit components rendered inside your control's own markup are judged by the row-key checks when your control renders (which the base does for its field's changes) and when its parent renders. To judge them at form-wide changes too, override `OnEngineStateChanged`, call `base`, and call `InvokeAsync(StateHasChanged)` when `FormChanged` is set and `Context.Engine.Options` has either check on. |
+| `ObservesEngineState` and `OnEngineStateChanged` are why a control re-renders as checks on its field start and finish | Leave them alone unless you mean it: `false` freezes the state class, `aria-invalid`, `aria-describedby` and `aria-required` at whatever the last render gave them. The base re-renders only for a change whose `Includes` names the control's field, with the row-key checks (`VerifyRowKeys` and `ReportStaleRegistrations`) on or off. Because the control registers its field, `Includes` names it whenever its "checking" starts or stops, on a row added while a submit runs too. Override `OnEngineStateChanged` and call `base` to keep that field-scoped re-render, or call `StateHasChanged` yourself for a control that must redraw on every change. Kit components rendered inside your control's own markup are judged by the row-key checks when your control renders (which the base does for its field's changes) and when its parent renders. To judge them at form-wide changes too, override `OnEngineStateChanged`, call `base`, and call `InvokeAsync(StateHasChanged)` when `FormChanged` is set and `Context.Engine.Options` has either check on. |
 
 One more seam serves a control whose native element can display text it reports as empty, a number
 box holding `e3` being the kit's own case. No render-tree diff can overwrite that, because the
@@ -1228,9 +1228,12 @@ the handler keeps its own flag.
 For a live read of another field's state, subscribe to the engine's `StateChanged`. Its
 [arguments](engine-reference.md#iformidableengine) say what moved. `Includes(field)` takes the
 `FieldIdentifier` of the field you read and answers whether the change moved that field's state or
-messages. `FormChanged` says something form-wide moved (the reading order, `IsFormValid`,
-`IsValidating`, `IsSubmitting` or `HasSubmitted`). In the handler, call `StateHasChanged` when
-`Includes` names your field or `FormChanged` is set.
+messages.
+
+`FormChanged` says something form-wide moved (the reading order, `IsFormValid`, `IsValidating`,
+`IsSubmitting`, `HasSubmitted`, or, as the page's fields change while a submit runs, which fields
+it marks as checking). In the handler, call `StateHasChanged` when `Includes` names your field or
+`FormChanged` is set.
 
 Put that read in a component of your own, not in markup, which cannot subscribe. Take the form's
 context as a `[CascadingParameter] FormidableFormContext`; subscribe to its `Engine.StateChanged` as

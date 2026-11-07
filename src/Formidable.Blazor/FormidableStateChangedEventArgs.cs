@@ -8,8 +8,8 @@ namespace Formidable.Blazor;
 /// a publish whose <see cref="Includes"/> answers <see langword="false"/> for it; one that renders
 /// form-wide state reads <see cref="FormChanged"/> too. A field the engine holds nothing for
 /// (whether it never did or has since let it go) is named once the engine holds something for
-/// it. While a submit that covers such a field checks, the field's pending state moves with
-/// <see cref="FormChanged"/>.
+/// it. Its pending state moves with <see cref="FormChanged"/> as the form starts and stops
+/// checking for a submit, and as the page's fields change while one runs.
 /// </remarks>
 // The class exists so the event's delegate shape never has to change: anything the event learns
 // to say about what changed is added here as init-only properties a handler written before the
@@ -23,7 +23,7 @@ public sealed class FormidableStateChangedEventArgs : EventArgs
     /// <summary>The fields whose state or messages moved in this publish; <see langword="null"/> means every field, which <see cref="Empty"/> carries.</summary>
     public IReadOnlySet<FieldIdentifier>? ChangedFields { get; init; }
 
-    /// <summary>Whether something no single field owns moved: the reading order, <see cref="IFormidableEngine.IsFormValid"/>, <see cref="IFormidableEngine.IsValidating"/>, <see cref="IFormidableEngine.IsSubmitting"/> or <see cref="IFormidableEngine.HasSubmitted"/>.</summary>
+    /// <summary>Whether something no single field owns moved: the reading order, <see cref="IFormidableEngine.IsFormValid"/>, <see cref="IFormidableEngine.IsValidating"/>, <see cref="IFormidableEngine.IsSubmitting"/>, <see cref="IFormidableEngine.HasSubmitted"/>, or, as the page's fields change while a submit runs, which fields it marks as checking.</summary>
     public bool FormChanged { get; init; }
 
     /// <summary>Whether this publish names every field as changed, which is <see cref="ChangedFields"/> being <see langword="null"/>.</summary>

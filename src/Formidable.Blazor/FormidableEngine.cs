@@ -54,10 +54,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // held-back re-check's arm drops it; and
     // _currentPass with
     // _currentPassScope, which the pass that recorded them clears beside
-    // IsValidating. _displaced is opened and extended on the caller's context as a submit or load
-    // begins, and as a live check stands down for one (on the dispatcher for the load's own
-    // follow-up check and a check given back), and is dropped or detached on the dispatcher as
-    // that submit or load ends.
+    // IsValidating, the scope also as a rendered-field-set change reads a running submit's
+    // again (RereadSubmitScope). _displaced is opened and extended on the caller's context as a
+    // submit or load begins, and as a live check stands down for one (on the dispatcher for the
+    // load's own follow-up check and a check given back), and is dropped or detached on the
+    // dispatcher as that submit or load ends.
     // The running validity check's marker (_validityCheckRunning, _validityCheckStartedAt),
     // _submitAnswered, _validityCheckOwedByLoad and _giveBacksPending move on the dispatcher, with
     // the one exception the end of this paragraph names: the marker as the timer fires and in the
@@ -293,6 +294,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private bool _publishedIsSubmitting;
     private bool _publishedHasSubmitted;
 
+    // How many times the fields a running submit covers have moved while it ran (RereadSubmitScope),
+    // and that count as of the last publish. The key set leaves a submit's scope out, so a move
+    // in it is a form-level change, as the submit's start and end are.
+    private int _submitScopeMoves;
+    private int _publishedSubmitScopeMoves;
+
     /// <summary>A field's rendered view: its state and its messages as severity and text, compared by value.</summary>
     /// <param name="State">What <see cref="GetFieldState"/> answers for the field.</param>
     /// <param name="Issues">The field's messages as <see cref="IssueText"/> writes them.</param>
@@ -489,12 +496,19 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     // The pending scope of _currentPass, recorded beside it as the pass begins and cleared with
     // it. A pass that a check started inside its own begin has already superseded records none
-    // (see RunPassAsync). _validatingScope publishes the same set, but on the dispatcher. A pass
+    // (see RunPassAsync). _validatingScope publishes the same set, but on the dispatcher, and a
+    // move in the rendered field set reads a submit's again into both (RereadSubmitScope). A pass
     // that begins reads this one at once, to know which fields the check it cancels was answering:
     // a submit or a load records them (RecordDisplaced), a live check or re-check that answers
     // them in its place takes them over, and a narrowed live check that cancels a re-check hands
     // them to HoldForNextRefresh (CarryCancelledFields).
     private HashSet<FieldIdentifier>? _currentPassScope;
+
+    // The submit whose scope _validatingScope and _currentPassScope hold, by version, with the
+    // profile it runs: recorded as its begin publishes that scope, and cleared as another pass's
+    // begin or any pass's end replaces it. A newer pass takes a newer version, so a submit it has
+    // superseded never matches, and its scope is never read again (RereadSubmitScope).
+    private (int Version, ValidationProfile Profile)? _scopedSubmit;
 
     // What the submit or load in flight displaced: the re-check or live check it cancelled as it
     // began, and the fields whose live check stood down for it while it ran. Opened by the first
@@ -778,7 +792,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return _requirements = map;
     }
 
-    /// <summary>The fields a submit's checking indicator covers: those <paramref name="profile"/> declares a rule for, resolved as <see cref="Requirements"/> resolves them, with each collection template expanded to the rows the model holds as the submit begins.</summary>
+    /// <summary>The fields a submit's checking indicator covers: those <paramref name="profile"/> declares a rule for, resolved as <see cref="Requirements"/> resolves them, with each collection template expanded to the rows the model holds as the set is read.</summary>
     /// <param name="profile">The submit profile.</param>
     /// <returns>The declared fields; <see langword="null"/>, which covers every field, when the validator cannot report its rules or its selection throws.</returns>
     // The submit answers for the whole model, but a field with no rule in the profile has nothing
@@ -794,9 +808,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // collection that refuses the walk show none either, since such a collection names no rows
     // (CollectionCount), though the submit still checks them. A validator that cannot say which
     // fields it checks keeps every field lit, as does a selection that throws, which the pass
-    // then reports through its fault policy. The set is read once, as the submit
-    // begins. A submit that checks again after an edit keeps it, so a row added while the submit
-    // runs shows no "checking" of its own.
+    // then reports through its fault policy. The set is read as the submit begins and again at
+    // each move in the rendered field set while it runs (RereadSubmitScope), so a row added or
+    // removed, or an owner replaced, while it runs moves the set with it. A submit that checks
+    // again after an edit keeps the set it holds: a row the edit leads the page to render
+    // reaches the set through the move that rendering it makes.
     private HashSet<FieldIdentifier>? SubmitPendingScope(ValidationProfile profile)
     {
         if (_validator is not IRuleInspectingValidator<TModel> { CanInspectRules: true } inspector)
@@ -819,6 +835,38 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             return null;
         }
+    }
+
+    /// <summary>Reads the pending scope of the running submit again, against the model as it stands, once that submit's begin has published its own scope.</summary>
+    /// <returns><see langword="true"/> when the scope moved, which owes a publish; <see langword="false"/> when no submit's scope is on record or the set read again holds the same fields.</returns>
+    // Called as the rendered field set moves, the one signal the engine has that the rows a
+    // collection template expands to, or the owner a nested path resolves through, may have
+    // moved. Only the current submit's scope is read again: a newer pass's version never
+    // matches the record, and a submit superseded inside its own begin records none, so a
+    // superseded pass's scope is never written. Both fields take the one new set, as the
+    // begin gives them one, and the set stays unchanged when the fields are the same, so a move
+    // that changes none of them publishes nothing for it. A submit's own scope has no other
+    // reader that acts on it: the record of a displaced check and the hand-on of cancelled
+    // fields act only on a live check's or a re-check's.
+    private bool RereadSubmitScope()
+    {
+        if (_scopedSubmit is not { } submit || _currentPass?.Version != submit.Version)
+        {
+            return false;
+        }
+
+        var scope = SubmitPendingScope(submit.Profile);
+        if (scope is null
+            ? _validatingScope is null
+            : _validatingScope is not null && scope.SetEquals(_validatingScope))
+        {
+            return false;
+        }
+
+        _validatingScope = scope;
+        _currentPassScope = scope;
+        _submitScopeMoves++;
+        return true;
     }
 
     /// <summary>The fields <paramref name="declaredPath"/> names on the model as it stands: one for a scalar path, one per row for a collection template (<c>Lines[].Sku</c>), and none for an empty collection.</summary>
@@ -1625,6 +1673,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // arriving leaves the reply in place.
     internal void OnRenderedFieldsChanged()
     {
+        // A running submit's "checking" covers the fields its rules name on the model, and a row
+        // added or removed, or an owner replaced, moves those as it moves the page. Read first, so
+        // a rebuild below publishes it, and published on its own after them when neither does.
+        var submitScopeMoved = RereadSubmitScope();
+
         // Departure ends engagement, with one exception (KeptByOverride): under
         // EngagedAndVisible, a departed field stays engaged while its live view shows an issue
         // whose path still resolves to it. Off the page that view holds only the issues
@@ -1713,12 +1766,24 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // policy and only while a verdict stands. A move that changes no gate costs the default
         // nothing here beyond the departure-only republish above, one more bool test, and a
         // GateActive read while GateTurnsOnVisibility holds or the store carries a gate.
+        var republished = dropped;
         if (!dropped
             && ((GateTurnsOnVisibility && GateActive != _storeShowsGate)
                 || (_storeShowsGate && !GateActive)
                 || (_liveVerdicts.Count > 0 && _options.LiveDisclosure == LiveIssueDisclosure.EngagedAndVisible)))
         {
             RebuildStore();
+            republished = true;
+        }
+
+        // The submit's scope read again at the top, published here when neither rebuild carried
+        // it. It moves only a pass's own state, so it notifies without rebuilding, as a pass's
+        // begin does: the publish names each rendered field whose "checking" moved, and the
+        // EditContext's notification re-renders a native input, whose pending class reads it too.
+        if (submitScopeMoved && !republished)
+        {
+            NotifyStateChanged();
+            EditContext.NotifyValidationStateChanged();
         }
 
         // One step earlier: a field an open live-debounce window has only accumulated is not yet
@@ -2237,19 +2302,22 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         IsValidating = false;
         _validatingScope = null;
+        _scopedSubmit = null;
         _currentPass = null;
         _currentPassScope = null;
         _submitCoverage.MoveVersion();
     }
 
-    /// <summary>Publishes that <paramref name="pass"/> began: sets <see cref="IsValidating"/> and narrows the checking indicator to <paramref name="fields"/>.</summary>
+    /// <summary>Publishes that <paramref name="pass"/> began: sets <see cref="IsValidating"/>, narrows the checking indicator to <paramref name="fields"/>, and for a submit records which submit that scope belongs to.</summary>
     /// <param name="pass">The pass, which must still be current for the write to land.</param>
     /// <param name="fields">The pending scope: a live pass's triggering fields, a refresh's fields edited within its window and those a debounce window still holds, each with the fields of a cancelled check the pass answers in its place; an empty set for a load; and for a submit the fields its profile declares, or <see langword="null"/>, which covers every field, when the validator cannot report its rules.</param>
-    private Task BeginValidatingAsync(PassScope pass, HashSet<FieldIdentifier>? fields) =>
+    /// <param name="profile">The profile the pass runs, which a submit's scope is read again under (see <see cref="RereadSubmitScope"/>).</param>
+    private Task BeginValidatingAsync(PassScope pass, HashSet<FieldIdentifier>? fields, ValidationProfile profile) =>
         PublishPassStateAsync(pass, () =>
         {
             IsValidating = true;
             _validatingScope = fields;
+            _scopedSubmit = pass.Kind == PassKind.Submit ? (pass.Version, profile) : null;
         });
 
     /// <summary>Retires a pass that ended without landing, whatever ended it, and abandons the held coverage answer, when the pass is still current.</summary>
@@ -2391,7 +2459,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 _ = CarryCancelledFields(handedOnFrom.Kind, supersededFields, kind, profile);
             }
 
-            await BeginValidatingAsync(pass, scope).ConfigureAwait(false);
+            await BeginValidatingAsync(pass, scope, profile).ConfigureAwait(false);
             begun = true;
 
             while (true)
@@ -3893,7 +3961,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         // A submit's scope stays out: it lists every field the submit profile declares, rows the
         // page never rendered included. A field nothing else holds has its pending state move
-        // with FormChanged, as FormidableStateChangedEventArgs tells a handler.
+        // with FormChanged, as FormidableStateChangedEventArgs tells a handler: IsValidating
+        // moves as the submit starts and ends, and the scope's move count while it runs.
         if (_validatingScope is not null && _currentPass?.Kind != PassKind.Submit)
         {
             keys.UnionWith(_validatingScope);
@@ -3930,7 +3999,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             || _publishedIsFormValid != _isFormValid
             || _publishedIsValidating != IsValidating
             || _publishedIsSubmitting != IsSubmitting
-            || _publishedHasSubmitted != HasSubmitted;
+            || _publishedHasSubmitted != HasSubmitted
+            || _publishedSubmitScopeMoves != _submitScopeMoves;
 
         _publishedViews = next;
         _publishedOrder = _fieldOrder;
@@ -3938,6 +4008,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _publishedIsValidating = IsValidating;
         _publishedIsSubmitting = IsSubmitting;
         _publishedHasSubmitted = HasSubmitted;
+        _publishedSubmitScopeMoves = _submitScopeMoves;
 
         return new FormidableStateChangedEventArgs { ChangedFields = changed, FormChanged = formChanged };
     }

@@ -343,6 +343,41 @@ public class FieldScopedRenderTests : BunitContext
         await Services.DisposeAsync();
     }
 
+    // A row added while a submit checks mounts its input before the form reads again which fields
+    // the submit covers, so the input's first render shows no "checking". The publish after that
+    // read names the row's field, which re-renders a kit input, and raises the EditContext's
+    // validation-state change, which re-renders a native one. The native input sits beside the
+    // anchor that puts its field on the page, as a native input in a row does.
+    // Mutation: drop the read the field-set move makes; the new row's input never takes the class.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_row_added_while_a_submit_checks_re_renders_with_the_pending_class(bool native)
+    {
+        var rules = new HeldSubmitRowsValidator();
+        var order = new EngineOrder { Items = [new EngineItem { Sku = "A-1" }] };
+        var cut = Render<RowsHost>(p => p
+            .Add(x => x.Order, order)
+            .Add(x => x.Validator, new FluentValidationModelValidator<EngineOrder>(rules))
+            .Add(x => x.Native, native));
+        var form = cut.FindComponent<FormidableForm<EngineOrder>>().Instance;
+
+        Task? submit = null;
+        await cut.InvokeAsync(() => { submit = form.SubmitAsync(); });
+        cut.WaitForAssertion(() => Assert.Contains("formidable-pending", cut.FindAll("input")[0].GetAttribute("class") ?? string.Empty));
+
+        await cut.InvokeAsync(() => cut.Instance.AddRow(new EngineItem()));
+        cut.WaitForAssertion(() => Assert.Equal(2, cut.FindAll("input").Count));
+        cut.WaitForAssertion(() => Assert.Contains("formidable-pending", cut.FindAll("input")[1].GetAttribute("class") ?? string.Empty));
+
+        rules.Gate.SetResult();
+        await submit!;
+        cut.WaitForAssertion(() => Assert.All(cut.FindAll("input"), input =>
+            Assert.DoesNotContain("formidable-pending", input.GetAttribute("class") ?? string.Empty)));
+
+        await Services.DisposeAsync();
+    }
+
     /// <summary>Counts its parameter sets and keeps what the fragment read inline at each; its object parameter makes every render of the fragment above re-set it.</summary>
     private sealed class ParameterSetCounter : ComponentBase
     {
@@ -649,6 +684,86 @@ public class FieldScopedRenderTests : BunitContext
                 inner.OpenComponent<FormidableFieldMessage<string>>(0);
                 inner.AddComponentParameter(1, nameof(FormidableFieldMessage<string>.For), (Expression<Func<string>>)(() => Order.Customer!.Name));
                 inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        }
+    }
+
+    /// <summary>An async rule on the description held on <see cref="Gate"/>, beside a presence rule on each row's SKU, both in the submit bucket, so a submit stays open while rows are added.</summary>
+    private sealed class HeldSubmitRowsValidator : DraftSubmitValidator<EngineOrder>
+    {
+        public TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override void ConfigureDraftRules()
+        {
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+            RuleFor(x => x.Description).MustAsync(async (_, ct) =>
+            {
+                await Gate.Task.WaitAsync(ct);
+                return true;
+            });
+            RuleForEach(x => x.Items).ChildRules(item => item.RuleFor(i => i.Sku).NotEmpty());
+        }
+    }
+
+    /// <summary>One SKU input per row under a FormidableForm, each keyed by its row, as a kit input or, with Native, Blazor's own InputText beside a FormidableFieldAnchor; AddRow adds a row and renders. ValueChanged goes to the row itself, so an edit does not re-render the page.</summary>
+    private sealed class RowsHost : ComponentBase
+    {
+        private static readonly FormidableOptions Defaults = new() { RefreshDebounce = Timeout.InfiniteTimeSpan };
+
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        [Parameter]
+        public IModelValidator<EngineOrder> Validator { get; set; } = default!;
+
+        [Parameter]
+        public bool Native { get; set; }
+
+        public void AddRow(EngineItem item)
+        {
+            Order.Items.Add(item);
+            StateHasChanged();
+        }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), Order);
+            builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.Validator), Validator);
+            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.Options), Defaults);
+            builder.AddComponentParameter(4, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                foreach (var item in Order.Items)
+                {
+                    var row = item;
+                    var changed = EventCallback.Factory.Create<string?>(row, value => row.Sku = value ?? string.Empty);
+                    if (Native)
+                    {
+                        inner.OpenElement(0, "div");
+                        inner.SetKey(row);
+                        inner.OpenComponent<InputText>(1);
+                        inner.AddComponentParameter(2, "Value", row.Sku);
+                        inner.AddComponentParameter(3, "ValueChanged", changed);
+                        inner.AddComponentParameter(4, "ValueExpression", (Expression<Func<string?>>)(() => row.Sku));
+                        inner.CloseComponent();
+                        inner.OpenComponent<FormidableFieldAnchor<string>>(5);
+                        inner.AddComponentParameter(6, nameof(FormidableFieldAnchor<string>.For), (Expression<Func<string>>)(() => row.Sku));
+                        inner.CloseComponent();
+                        inner.CloseElement();
+                        continue;
+                    }
+
+                    inner.OpenComponent<FormidableInputText>(10);
+                    inner.SetKey(row);
+                    inner.AddComponentParameter(11, nameof(FormidableInputText.For), (Expression<Func<string?>>)(() => row.Sku));
+                    inner.AddComponentParameter(12, "Value", row.Sku);
+                    inner.AddComponentParameter(13, "ValueChanged", changed);
+                    inner.CloseComponent();
+                }
             }));
             builder.CloseComponent();
         }

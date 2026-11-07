@@ -315,11 +315,24 @@ The whole-form re-check shows "checking" on a field whose change is still waitin
 (the wait the form can put between an edit and its check). After a submit, it also shows it on each
 field you edited since.
 
-Pressing Submit shows "checking" on each field whose submit rules the library can read, as the form
-stands when you press, because all of those are being checked at once. A field whose only rules the
-library cannot read ahead of a run (such as one inside `DependentRules`, or in a child validator
-built from the model) shows none. Where your validator cannot report its rules to the library, a
-submit shows it on every field.
+Pressing Submit shows "checking" on each field whose submit rules the library can read, because all
+of those are being checked at once. A field whose only rules the library cannot read ahead of a run
+(such as one inside `DependentRules`, or in a child validator built from the model) shows none.
+Where your validator cannot report its rules to the library, a submit shows it on every field.
+
+While a submit runs, the fields showing "checking" change with the page. A row you add shows
+"checking" on each field whose submit rules the library can read, until the submit's answer lands.
+The fields of an object your code replaces show it too, once the page renders the replacement.
+
+Whether that submit checks the new row depends on how you add it. A row added through the kit's
+`AddItem` is a change, and the submit treats it as any change made while it checks: it
+[checks again](#what-happens-if-i-press-submit-while-a-check-is-running) with the row in place. A
+required field left empty in the new row blocks the submit.
+
+A row your code adds to the list without telling the form can arrive after the submit has read the
+list. The submit then answers without it and can let the form through. The row's messages stay
+hidden until something checks it and shows them: your next change to it, say, or the next Submit.
+Add rows through `AddItem`, and no row added while the submit is checking gets past it unchecked.
 
 Loading values shows "checking" on fewer fields than a submit, and can keep it off a field you
 changed: the paragraphs on loading below say when.

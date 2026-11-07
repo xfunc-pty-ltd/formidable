@@ -33,7 +33,7 @@ and pending is decided separately, on top of whatever that left:
 | 3 | It has a warning-severity issue | `Warning` (`formidable-warning`) |
 | 4 | Its only issues are info-severity | `Info` (`formidable-info`) |
 | 5 | It has no issues left to show *and* would pass submit | `Valid` (`formidable-valid`) |
-| Always | A check covering the field is still running ([which checks cover which fields](async-validation.md#where-does-checking-show-and-where-doesnt-it); a submit covers each field whose submit rules the library can read, as the form stands when you press, or every field where your validator cannot report its rules) | `Pending` (`formidable-pending`), appended to whichever tier applied, or standing alone where none did — it never replaces a tier's own class |
+| Always | A running check marks the field as checking ([which checks mark which fields](async-validation.md#where-does-checking-show-and-where-doesnt-it); a submit marks each field whose submit rules the library can read, a row added while it runs included, or every field where your validator cannot report its rules) | `Pending` (`formidable-pending`), appended to whichever tier applied, or standing alone where none did — it never replaces a tier's own class |
 
 That is the entire class-name contract: rename the five strings, and the order above still decides
 when each one applies.
@@ -64,7 +64,7 @@ flowchart TD
     I -- "no" --> S{"Have the submit rules answered for this value, and passed it?"}
     S -- "yes" --> OK["formidable-valid"]
     S -- "not yet, or failed" --> NONE
-    P{"A check covering the field still running?"} -- "yes" --> PEND["formidable-pending, appended to whichever of those applied, or alone where none did"]
+    P{"Does a running check mark the field as checking?"} -- "yes" --> PEND["formidable-pending, appended to whichever of those applied, or alone where none did"]
     P -- "no" --> SAME["Nothing is appended"]
 ```
 
