@@ -908,6 +908,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // may swap at any moment.
     private ValidationProfile ResolvedLiveProfile => _options.LiveProfile ?? _options.SubmitProfile;
 
+    /// <summary>Whether the live profile, as the options stand at this read, is the submit profile instance itself.</summary>
+    // By reference, as ResolvedLiveProfile resolves. Code holding the profile a check captured as
+    // it began tests that instance instead.
+    private bool LiveRunsSubmitProfile => ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile);
+
     /// <summary>Whether a pass in flight, an armed timer, the running validity check or the running handler's coming arm is demonstrably about to re-answer the submit-selected rules, which lets the held vouch serve across an edit.</summary>
     /// <returns><see langword="true"/> for a pass younger than <see cref="SubmitCoverageTracker.HeldVouchBound"/> whose landing answers the submit selection; for a refresh armed by an edit or by an apply that held answers back, a submit-running live window, or a validity check armed while tracking is on, each behind a debounce that can fire; or for the probe a validity timer's fire started, until it ends or the bound passes; a pass past the bound answers <see langword="false"/> whatever is armed behind it.</returns>
     // The options are read here at each ask, per their read-at-each-use contract. The validity
@@ -941,7 +946,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return true;
         }
 
-        var liveAnswersSubmit = ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile);
+        var liveAnswersSubmit = LiveRunsSubmitProfile;
 
         if (_currentPass is { } pass)
         {
@@ -1121,7 +1126,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             RecordShowing(showing, ModelLevelField, _faultIssue);
         }
 
-        foreach (var (field, issues) in SubmitErrorEntries())
+        foreach (var (field, issues) in SubmitErrorEntries(GateActive))
         {
             foreach (var issue in issues)
             {
@@ -1241,13 +1246,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // an override answering false for a registered field would keep the gate beside that
             // field's own live message, which the default policy shows whatever the override says.
             // Evaluated last because the arming test above is false on virtually every form, so
-            // no form walks the engaged set unless a gate is actually standing.
+            // no form walks the engaged set unless a gate is actually standing. A loop rather than
+            // a lambda over the issues, which would capture the field and allocate per entry.
             foreach (var (liveField, issues) in LiveEntries())
             {
-                if (issues.Any(i => i.Severity == ValidationSeverity.Error
-                    && (IsRendered(liveField) || _options.DisclosureOverride?.Invoke(i) == true)))
+                foreach (var issue in issues)
                 {
-                    return false;
+                    if (issue.Severity == ValidationSeverity.Error
+                        && (IsRendered(liveField) || _options.DisclosureOverride?.Invoke(issue) == true))
+                    {
+                        return false;
+                    }
                 }
             }
 
@@ -1429,6 +1438,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         left.Message == right.Message && left.Severity == right.Severity;
 
     /// <summary>Every field the submit-error view has entries for, with its merged view: the gate while it shows, then revealed fields showing their client errors in report order, then the other server fields in apply order.</summary>
+    /// <param name="gateShows"><see cref="GateActive"/>, read once by the caller.</param>
     /// <returns>The fields and their views; <see cref="GetVisibleIssues"/> and <see cref="RebuildStore"/> both walk this one enumeration.</returns>
     // The gate leads because a page with no reading order lists issues in this order, and a focus
     // move takes the first error listed. The gate shows only while no error listed here passes
@@ -1436,9 +1446,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // ahead of the gate would aim the move at such an error, usually on a field with no element
     // to take focus. Led by the gate, the move aims at the form, which is where a resolved
     // document order puts the gate too.
-    private IEnumerable<(FieldIdentifier Field, List<ValidationIssue> Issues)> SubmitErrorEntries()
+    private IEnumerable<(FieldIdentifier Field, List<ValidationIssue> Issues)> SubmitErrorEntries(bool gateShows)
     {
-        if (GateActive)
+        if (gateShows)
         {
             yield return (ModelLevelField, new List<ValidationIssue> { GateIssue });
         }
@@ -1766,10 +1776,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // policy and only while a verdict stands. A move that changes no gate costs the default
         // nothing here beyond the departure-only republish above, one more bool test, and a
         // GateActive read while GateTurnsOnVisibility holds or the store carries a gate.
+        // The two gate tests fold into one comparison, asked while either can hold (a move that
+        // can turn the gate on or off through visibility, or a store that carries a gate), so the
+        // predicate is read once.
         var republished = dropped;
         if (!dropped
-            && ((GateTurnsOnVisibility && GateActive != _storeShowsGate)
-                || (_storeShowsGate && !GateActive)
+            && (((GateTurnsOnVisibility || _storeShowsGate) && GateActive != _storeShowsGate)
                 || (_liveVerdicts.Count > 0 && _options.LiveDisclosure == LiveIssueDisclosure.EngagedAndVisible)))
         {
             RebuildStore();
@@ -2012,7 +2024,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // that never passes arms nothing the vouch counts, and the validity branch's own guards apply.
     private bool ChangeArmsReAnswer()
     {
-        var liveAnswersSubmit = ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile);
+        var liveAnswersSubmit = LiveRunsSubmitProfile;
         var refreshFires = UsableWait(_options.RefreshDebounce) is not null;
 
         if (liveAnswersSubmit
@@ -2086,7 +2098,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // runs the submit profile answers IsFormValid as it lands, and a probe beside it would
             // run an async rule a second time, since neither could reuse what the other was still
             // computing. So the probe starts only beside a narrowed one.
-            var liveAnswersSubmit = ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile);
+            var liveAnswersSubmit = LiveRunsSubmitProfile;
             ObserveBackground(RunLivePassAsync([e.FieldIdentifier]));
 
             if (_options.TrackFormValidity && !liveAnswersSubmit)
@@ -2855,14 +2867,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         if (_validityFireDeferred)
         {
-            _validityFireDeferred = false;
             if (RefreshArmedByEdit)
             {
-                _validityCheckArmed = false;
-                _validityCheckOwedByLoad = false;
+                StandDownValidityCheck();
             }
             else
             {
+                _validityFireDeferred = false;
                 ScheduleValidityCheck();
             }
         }
@@ -3863,7 +3874,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             _store.Add(ModelLevelField, _faultIssue.Message);
         }
 
-        foreach (var (field, issues) in SubmitErrorEntries())
+        foreach (var (field, issues) in SubmitErrorEntries(_storeShowsGate))
         {
             foreach (var issue in issues.Where(i => i.Severity == ValidationSeverity.Error))
             {
@@ -4513,7 +4524,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _currentPass is { } pass
         && (pass.Kind == PassKind.Submit
             || (pass.EditStamp == _editStamp
-                && (pass.Kind != PassKind.Live || ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile))));
+                && (pass.Kind != PassKind.Live || LiveRunsSubmitProfile)));
 
     /// <summary>Records the edit stamp a replacement of the stored submit answer was computed at, and empties the held-back set when the check that produced it read the current edit stamp.</summary>
     /// <param name="beganAtEditStamp">The edit stamp the replacing check read as it began.</param>
@@ -5036,9 +5047,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>Drops the validity check, whether armed or waiting for the pass in flight: disarms its timer and clears its flag, its deferral record and its load claim.</summary>
     // For a landing that has just answered IsFormValid for the latest edit, and for an edit that
     // arms the refresh, or an apply that arms it for answers it held back, since that refresh
-    // answers it for the whole model. Disarming the timer stops a fire still to come; a waiting
-    // check has fired already, and clearing its record keeps ArmDeferredFires from arming it
-    // again.
+    // answers it for the whole model. The fire's own stand-down and ArmDeferredFires' drop come
+    // here too. Disarming the timer stops a fire still to come, which would find the check's flag
+    // clear and do nothing; a waiting check has fired already, and clearing its record keeps
+    // ArmDeferredFires from arming it again.
     private void StandDownValidityCheck()
     {
         _validityTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
@@ -5111,9 +5123,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             || RefreshArmedByEdit
             || ValidityAnswerBegunAtLatestEdit)
         {
-            _validityCheckArmed = false;
-            _validityFireDeferred = false;
-            _validityCheckOwedByLoad = false;
+            StandDownValidityCheck();
             return Task.CompletedTask;
         }
 
@@ -5271,7 +5281,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _pendingDebouncedLiveFields.Clear();
 
         if (_options.TrackFormValidity
-            && (fields.Count == 0 || !ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile)))
+            && (fields.Count == 0 || !LiveRunsSubmitProfile))
         {
             // A live pass that runs the submit profile answers IsFormValid as it lands, so the
             // probe runs only where none will: beside a narrowed one, or where the snapshot is
