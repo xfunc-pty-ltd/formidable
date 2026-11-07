@@ -205,6 +205,10 @@ public sealed partial class FluentValidationModelValidator<TModel>
     {
         ArgumentNullException.ThrowIfNull(profile);
 
+        // The capability is tested first, so a validator that stopped being capable after an
+        // answer was kept throws here rather than being served that answer.
+        var abstractValidator = RequireRuleLevelCapability();
+
         // One slot keyed by profile reference, the pattern DeclaredFields uses: a caller building
         // its plan asks repeatedly for the same stored profile instance, and a hit skips both the
         // ruleset verification and the walk of the validator's rules. Reference rather than
@@ -216,7 +220,6 @@ public sealed partial class FluentValidationModelValidator<TModel>
             return snapshot.Rules;
         }
 
-        var abstractValidator = RequireRuleLevelCapability();
         VerifyRuleSets(profile);
 
         var selected = new List<RuleIdentity>();

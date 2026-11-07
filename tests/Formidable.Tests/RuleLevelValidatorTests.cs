@@ -611,6 +611,23 @@ public class RuleLevelValidatorTests
     }
 
     [Fact]
+    public void SelectRules_throws_for_a_kept_profile_once_the_capability_turns_off()
+    {
+        // A kept answer is served by profile reference; a validator that stops being capable
+        // after that call still throws for the same instance instead of serving the old list.
+        var inner = new PlainRuleValidator();
+        var validator = new FluentValidationModelValidator<RuleModel>(inner);
+        var profile = ValidationProfile.Submit;
+        Assert.NotEmpty(validator.SelectRules(profile));
+
+        inner.ClassLevelCascadeMode = CascadeMode.Stop;
+
+        Assert.False(validator.CanValidateByRule);
+        var thrown = Assert.Throws<NotSupportedException>(() => validator.SelectRules(profile));
+        Assert.Contains("ClassLevelCascadeMode", thrown.Message);
+    }
+
+    [Fact]
     public async Task CanValidateByRule_is_false_for_a_PreValidate_override()
     {
         // FluentValidation runs PreValidate once per validator call, and a failure it adds belongs
