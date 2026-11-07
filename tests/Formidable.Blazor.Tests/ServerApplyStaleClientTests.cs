@@ -296,6 +296,321 @@ public class ServerApplyStaleClientTests : BunitContext
         await Services.DisposeAsync();
     }
 
+    // ================================================================ a pass the reply waited for ends unanswered ====
+
+    // The page writes "ab" onto Code itself, so nothing engages it, and starts a load, which waits
+    // on the async rule. The reply arrives while the load runs. It holds Code back, because the
+    // stored answer is the opening check's for the empty value, and starts nothing, because the
+    // load will replace that answer. Then the load ends without one. A cancelled load leaves the
+    // reply's re-check due again, armed at zero, so it runs with no wait on the clock, and the
+    // client's answer for "ab" joins the server's once it lands. A load whose rule faults leaves
+    // none, as a faulted check owes a reply no re-check: the re-check would run the rule that
+    // threw. Code then shows the server's answer alone beside the fault message, and the rule runs
+    // no more. Code never shows "Code required".
+    // Mutations: never re-arm as the load ends, and the cancelled row arms nothing and Code shows
+    // the server's answer alone; re-arm after a fault too, and the faulted row runs the rule again.
+    [Theory]
+    [InlineData("cancelled")]
+    [InlineData("faulted")]
+    public async Task A_load_the_reply_waited_for_that_ends_unanswered_owes_it_the_recheck_unless_it_faulted(string end)
+    {
+        var model = new Ticket();
+        var rules = new AsyncTicketRules();
+        var cut = RenderTicket(model, new FluentValidationModelValidator<Ticket>(rules), new FormidableOptions());
+        var engine = EngineOf(cut);
+        var form = cut.FindComponent<FormidableForm<Ticket>>().Instance;
+        var code = CodeOf(model);
+        var modelLevel = new FieldIdentifier(model, string.Empty);
+        await SettleAsync(cut, engine);
+        var runs = rules.Gate.Runs;
+
+        model.Code = "ab";
+        rules.Gate.Hold = true;
+        using var cancel = new CancellationTokenSource();
+        var load = cut.InvokeAsync(() => form.DiscloseLoadedValuesAsync(cancel.Token));
+        Assert.True(await Until(() => rules.Gate.Runs == runs + 1));
+
+        await ApplyAsync(cut, new ValidationIssue(nameof(Ticket.Code), CodeTaken));
+        Assert.Equal([CodeTaken], Messages(engine, code));
+        Assert.Equal(0, _clock.ZeroWaits);
+
+        if (end == "cancelled")
+        {
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
+            Assert.Equal(1, _clock.ZeroWaits);
+            Assert.Equal(runs + 1, rules.Gate.Runs);
+
+            rules.Gate.Release();
+            await cut.InvokeAsync(() => _clock.RunZeroWaits());
+            cut.WaitForState(() => !engine.IsValidating);
+            await cut.InvokeAsync(() => { });
+            Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
+            Assert.Equal(runs + 2, rules.Gate.Runs);
+        }
+        else
+        {
+            rules.Gate.Fault();
+            await load;
+            Assert.Equal(0, _clock.ZeroWaits);
+
+            await SettleAsync(cut, engine);
+            await SettleAsync(cut, engine, TimeSpan.FromSeconds(10));
+            Assert.Equal([CodeTaken], Messages(engine, code));
+            Assert.Contains(engine.GetIssues(modelLevel), i => i.Message == new FormidableOptions().ValidationFaultMessage);
+            Assert.Equal(runs + 1, rules.Gate.Runs);
+        }
+
+        await Services.DisposeAsync();
+    }
+
+    // The faulted load again, on an engine the page holds directly, with the reply applied by the
+    // page's ValidationFaulted handler, which runs as the load's fault is reported. The reply clears
+    // the fault message, as every reply does, and holds Code back with nothing armed, because the
+    // client had faulted. The load then ends with no fault left standing, and still owes no
+    // re-check, since the re-check would run the rule that threw: the rule runs no more, and Code
+    // shows the server's answer alone.
+    // Mutation: ask the load's end only whether a fault still stands, and the cleared fault lets it
+    // arm the re-check, which runs the rule again.
+    [Fact]
+    public async Task A_reply_from_a_fault_handler_leaves_the_faulted_load_owing_no_recheck()
+    {
+        var model = new Ticket();
+        var rules = new AsyncTicketRules();
+        var editContext = new EditContext(model);
+        using var engine = new FormidableEngine<Ticket>(
+            model, editContext, new FluentValidationModelValidator<Ticket>(rules), new ReflectionModelIntrospector(),
+            new FormidableOptions(), _clock, EngineTestSync.OneAtATime());
+        var code = CodeOf(model);
+        var replies = 0;
+        engine.ValidationFaulted += (_, _) =>
+        {
+            replies++;
+            engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        };
+
+        model.Code = "ab";
+        rules.Gate.Hold = true;
+        var load = engine.DiscloseLoadedValuesAsync();
+        Assert.True(await Until(() => rules.Gate.Runs == 1));
+        rules.Gate.Fault();
+        await load;
+        Assert.Equal(1, replies);
+        Assert.Equal(0, _clock.ZeroWaits);
+
+        _clock.RunZeroWaits();
+        _time.Advance(TimeSpan.FromSeconds(10));
+        await Task.Delay(50);
+        Assert.Equal(1, rules.Gate.Runs);
+        Assert.False(engine.IsValidating);
+        Assert.Equal([CodeTaken], Messages(engine, code));
+    }
+
+    // The re-check a reply starts faults, so the fault message shows and Code still shows the
+    // server's answer alone. The page then starts a load, which waits on the async rule, and
+    // cancels it. Its end owes the reply no re-check while that fault still stands, since the
+    // re-check would run the rule that threw last: nothing is armed and the rule runs no more.
+    // Mutation: ask the load's end only whether the load itself faulted, and it arms the re-check,
+    // which runs the rule again.
+    [Fact]
+    public async Task A_cancelled_load_after_the_reply_s_recheck_faulted_owes_it_no_recheck()
+    {
+        var model = new Ticket();
+        var rules = new AsyncTicketRules();
+        var editContext = new EditContext(model);
+        using var engine = new FormidableEngine<Ticket>(
+            model, editContext, new FluentValidationModelValidator<Ticket>(rules), new ReflectionModelIntrospector(),
+            TicketOptions("draft"), _clock, EngineTestSync.OneAtATime());
+        var code = CodeOf(model);
+        var modelLevel = new FieldIdentifier(model, string.Empty);
+        model.Code = "ab";
+        editContext.NotifyFieldChanged(code); // its live check runs no rule of Code's
+        Assert.True(await Until(() => !engine.IsValidating));
+
+        rules.Gate.Hold = true;
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        Assert.Equal(1, _clock.RunZeroWaits()); // the reply's re-check starts and waits
+        Assert.True(await Until(() => rules.Gate.Runs == 1));
+        rules.Gate.Fault();
+        Assert.True(await Until(() => !engine.IsValidating));
+        Assert.Contains(engine.GetIssues(modelLevel), i => i.Message == new FormidableOptions().ValidationFaultMessage);
+        Assert.Equal([CodeTaken], Messages(engine, code));
+
+        rules.Gate.ReleaseHeldRuns();
+        rules.Gate.Hold = true;
+        using var cancel = new CancellationTokenSource();
+        var load = engine.DiscloseLoadedValuesAsync(cancel.Token);
+        Assert.True(await Until(() => rules.Gate.Runs == 2));
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
+        Assert.Equal(0, _clock.ZeroWaits);
+
+        rules.Gate.Release();
+        _clock.RunZeroWaits();
+        _time.Advance(TimeSpan.FromSeconds(10));
+        await Task.Delay(50);
+        Assert.Equal(2, rules.Gate.Runs);
+        Assert.Equal([CodeTaken], Messages(engine, code));
+    }
+
+    // The visitor types "ab" under a narrowed LiveProfile, whose check runs none of Code's rules,
+    // and with no submit or reply before it, so the edit starts no re-check either. The page then
+    // starts a submit with a token of its own, and the submit waits on the async rule. The reply
+    // arrives while it runs, holds Code back, and starts nothing, because the submit will replace
+    // the stored answer. Then the page cancels its token. The submit's end leaves the reply's
+    // re-check due again, armed at zero, and once it lands the client's answer for "ab" joins the
+    // server's.
+    // Mutation: never re-arm as the submit ends, and nothing runs after the cancel: Code shows the
+    // server's answer alone.
+    [Fact]
+    public async Task A_submit_the_reply_waited_for_that_the_page_cancels_owes_it_the_recheck()
+    {
+        var model = new Ticket();
+        var rules = new AsyncTicketRules();
+        var cut = RenderTicket(model, new FluentValidationModelValidator<Ticket>(rules), TicketOptions("draft"));
+        var engine = EngineOf(cut);
+        var code = CodeOf(model);
+        await SettleAsync(cut, engine);
+        await EditAsync(cut, "Code", "ab");
+        await SettleAsync(cut, engine);
+        var runs = rules.Gate.Runs;
+
+        rules.Gate.Hold = true;
+        using var cancel = new CancellationTokenSource();
+        var submit = cut.InvokeAsync(() => engine.ValidateForSubmitAsync(cancel.Token));
+        Assert.True(await Until(() => rules.Gate.Runs == runs + 1));
+
+        await ApplyAsync(cut, new ValidationIssue(nameof(Ticket.Code), CodeTaken));
+        Assert.Equal([CodeTaken], Messages(engine, code));
+        Assert.Equal(0, _clock.ZeroWaits);
+
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => submit);
+        Assert.Equal(1, _clock.ZeroWaits);
+        Assert.Equal(runs + 1, rules.Gate.Runs);
+
+        rules.Gate.Release();
+        await cut.InvokeAsync(() => _clock.RunZeroWaits());
+        cut.WaitForState(() => !engine.IsValidating);
+        await cut.InvokeAsync(() => { });
+        Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
+        Assert.Equal(runs + 2, rules.Gate.Runs);
+
+        await Services.DisposeAsync();
+    }
+
+    // The same load and reply on an engine the page holds directly, disposed while the load runs:
+    // once while the rule is still out, and once from a StateChanged handler as the cancelled
+    // load's end publishes, so the dispatch that gives back what the load displaced runs on a
+    // disposed engine. Either way no re-check is armed or starts, however far the clock moves, and
+    // nothing reaches the route for a throw in work no caller awaits.
+    [Theory]
+    [InlineData("while-the-rule-is-out")]
+    [InlineData("as-the-load-ends")]
+    public async Task A_load_the_reply_waited_for_on_an_engine_disposed_mid_load_starts_no_recheck(string when)
+    {
+        var model = new Ticket();
+        var rules = new AsyncTicketRules();
+        var editContext = new EditContext(model);
+        var posted = new List<Exception>();
+        var engine = new FormidableEngine<Ticket>(
+            model, editContext, new FluentValidationModelValidator<Ticket>(rules), new ReflectionModelIntrospector(),
+            new FormidableOptions(), _clock, EngineTestSync.OneAtATime(), logger: null,
+            postedFault: exception =>
+            {
+                lock (posted)
+                {
+                    posted.Add(exception);
+                }
+            });
+        var code = CodeOf(model);
+
+        model.Code = "ab";
+        rules.Gate.Hold = true;
+        using var cancel = new CancellationTokenSource();
+        var load = engine.DiscloseLoadedValuesAsync(cancel.Token);
+        Assert.True(await Until(() => rules.Gate.Runs == 1));
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        Assert.Equal([CodeTaken], Messages(engine, code));
+        Assert.Equal(0, _clock.ZeroWaits);
+
+        if (when == "while-the-rule-is-out")
+        {
+            engine.Dispose();
+            await load;
+            cancel.Cancel();
+        }
+        else
+        {
+            engine.StateChanged += (_, _) =>
+            {
+                if (!engine.IsValidating)
+                {
+                    engine.Dispose();
+                }
+            };
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
+        }
+
+        rules.Gate.Release();
+        Assert.Equal(0, _clock.ZeroWaits);
+        _clock.RunZeroWaits();
+        _time.Advance(TimeSpan.FromSeconds(10));
+        await Task.Delay(50);
+        Assert.Equal(1, rules.Gate.Runs);
+        Assert.False(engine.IsValidating);
+        lock (posted)
+        {
+            Assert.Empty(posted);
+        }
+    }
+
+    // The cancelled load again, with TrackFormValidity on, on the bare fake clock, which runs a
+    // timer armed at zero inside the arm, and through a validator the form cannot take rule by
+    // rule, so no check can reuse another's answer. As the load ends, the form also checks
+    // whether anything is on its way to answer IsFormValid for the load's change, and with
+    // nothing armed it arms a validity check. The re-check's arm comes after that and stands the
+    // validity check down, so the re-check that then starts at once is the only check to run.
+    // The async rule runs once for it, and the client's answer joins the server's.
+    // Mutation: arm the re-check before that question, and the re-check starts inside its arm,
+    // the question finds nothing armed, and the validity check it arms runs the rule again.
+    [Fact]
+    public async Task A_load_the_reply_waited_for_ending_on_a_clock_that_fires_at_once_runs_the_rule_once()
+    {
+        var model = new Ticket();
+        var rules = new AsyncTicketRules();
+        var editContext = new EditContext(model);
+        using var engine = new FormidableEngine<Ticket>(
+            model, editContext, new WholeProfile<Ticket>(new FluentValidationModelValidator<Ticket>(rules)),
+            new ReflectionModelIntrospector(), new FormidableOptions { TrackFormValidity = true }, _time,
+            EngineTestSync.OneAtATime());
+        var code = CodeOf(model);
+        Assert.True(await Until(() => rules.Gate.Runs == 1 && !engine.IsValidating)); // the probe the build starts
+
+        model.Code = "ab";
+        rules.Gate.Hold = true;
+        using var cancel = new CancellationTokenSource();
+        var load = engine.DiscloseLoadedValuesAsync(cancel.Token);
+        Assert.True(await Until(() => rules.Gate.Runs == 2));
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        Assert.Equal([CodeTaken], Messages(engine, code));
+
+        cancel.Cancel();
+        rules.Gate.Release();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
+        for (var step = 0; step < 10; step++)
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(100));
+            await Task.Delay(10);
+        }
+
+        Assert.True(await Until(() => !engine.IsValidating && Messages(engine, code).Count == 2));
+        await Task.Delay(50);
+        Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
+        Assert.Equal(3, rules.Gate.Runs);
+    }
+
     // ================================================================ beside the form-level message ====
 
     // Name renders and Code, which nothing renders, never does. Name opens empty, so the form's
@@ -1652,7 +1967,7 @@ public class ServerApplyStaleClientTests : BunitContext
             IModelValidator<Member> validator = new FluentValidationModelValidator<Member>(rules);
             if (wholeProfile)
             {
-                validator = new WholeProfile(validator);
+                validator = new WholeProfile<Member>(validator);
             }
 
             var options = new FormidableOptions { DisclosureOverride = everyFieldShows ? _ => true : null };
@@ -1683,12 +1998,12 @@ public class ServerApplyStaleClientTests : BunitContext
     }
 
     /// <summary>Hides the rule-by-rule seam, so every check is one whole-profile call that can reuse no stored answer.</summary>
-    private sealed class WholeProfile(IModelValidator<Member> inner) : IModelValidator<Member>
+    private sealed class WholeProfile<TModel>(IModelValidator<TModel> inner) : IModelValidator<TModel>
     {
-        public Task<ValidationReport> ValidateAsync(Member model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+        public Task<ValidationReport> ValidateAsync(TModel model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
             inner.ValidateAsync(model, profile, cancellationToken);
 
-        public ValidationReport Validate(Member model, ValidationProfile profile) => inner.Validate(model, profile);
+        public ValidationReport Validate(TModel model, ValidationProfile profile) => inner.Validate(model, profile);
     }
 
     internal sealed record MemberForm(FormidableEngine<Member> Engine, EditContext EditContext, Member Model, MemberRules Rules) : IDisposable

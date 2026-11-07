@@ -1819,14 +1819,31 @@ Nothing is armed either while a pass in flight is expected to land an answer tha
 edit. Any submit counts, since one an edit outdates checks again, and so does a refresh, a load or
 a submit-profile live pass that began at the current stamp.
 
+A submit or load counted this way can still end without that answer: cancelled, faulted, or a
+submit an edit outdated after its restarts were spent. Each such end but one gives back what the
+pass displaced in the dispatch after it, and that dispatch asks for the re-check again under the
+same guards.
+
+The one exception is a blocking submit whose outdated answer lands. Its end gives back and asks
+only when a live check stood down for it; otherwise the edit that outdated it has armed the refresh
+already, as every edit made while a submit runs does.
+
+A rule that failed under the pass counts as the client's fault, as does a fault still standing
+then, so after a faulted pass the ask arms nothing. The pass's own failure is recorded apart from
+the fault issue, which a reply applied from a handler as the failure is reported clears.
+
+The ask comes last in that dispatch, after its `IsFormValid` question, and its arm stands down any
+validity check the question armed. A zero wait can start the re-check inside its arm, and a
+question asked after that would find nothing armed and arm a check beside it.
+
 A `TrackFormValidity` probe is not a pass, but one begun at the current stamp and still out is
 running the same rules, and a re-check beside it would run an async rule a second time. So the arm
 waits for that probe instead (`_heldBackRecheckOwed`).
 
 The probe's exit then arms the re-check (`EndProbe`) under the same guards, with the probe's own
 fault standing in for the client's. A re-check it arms after a landing reuses what the probe
-filed. After that fault, or a submit or load in flight at the exit that ends without an answer,
-the set waits for the next whole-form check.
+filed. After that fault the set waits for the next whole-form check. A submit or load in flight at
+the exit arms nothing there, and its own end asks again as above.
 
 The arm stands an armed or waiting validity check down, as an edit that arms the refresh does.
 `RefreshArmedByEdit` counts the apply's re-check until it begins, so the held vouch keeps serving

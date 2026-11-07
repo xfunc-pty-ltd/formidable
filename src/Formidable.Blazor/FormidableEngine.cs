@@ -37,8 +37,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // _returnedRefreshFields, _pendingDebouncedLiveFields, _validityCheckArmed) mutates
     // synchronously on the caller's context, with these exceptions on the dispatcher:
     // _pendingRefreshFields when a refresh snapshots and clears it at begin, and
-    // _refreshArmedByApply as that begin clears it and as a probe's exit arms a re-check an apply
-    // left waiting (EndProbe); _returnedRefreshFields when a refresh takes it
+    // _refreshArmedByApply as that begin clears it, as a probe's exit arms a re-check an apply
+    // left waiting (EndProbe), and in the dispatch after a submit's or load's end, which arms the
+    // re-check that pass was to answer; _returnedRefreshFields when a refresh takes it
     // at begin, when a landing empties it, and when a re-check a submit or load cancelled is given
     // back;
     // _engagedFields when a rendered-field-set change prunes
@@ -49,7 +50,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // given back joins it or a cleared LiveDebounce empties it; _validityCheckArmed when the
     // validity timer fires, when a load's adopted answer or a probe's exit that arms an apply's
     // re-check drops the check (StandDownValidityCheck), and in the dispatch after a pass ends,
-    // where ArmDeferredFires arms or drops the check and RecheckFormValidity arms it; and
+    // where ArmDeferredFires arms or drops the check, RecheckFormValidity arms it, and the
+    // held-back re-check's arm drops it; and
     // _currentPass with
     // _currentPassScope, which the pass that recorded them clears beside
     // IsValidating. _displaced is opened and extended on the caller's context as a submit or load
@@ -85,8 +87,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // _lastSubmitLiveEditStamp as a live check that runs the submit profile begins, and as a
     // submit's or a load's begin cancels one (RecordDisplaced), on whichever context that begin
     // runs;
-    // _heldBackRecheckOwed on the caller's context in ApplyServerIssues and on the dispatcher as
-    // the probe it waits for exits; _refreshArmed where the refresh timer is armed and where it
+    // _heldBackRecheckOwed on the caller's context in ApplyServerIssues, and on the dispatcher as
+    // the probe it waits for exits and in the dispatch after a submit's or load's end;
+    // _refreshArmed where the refresh timer is armed and where it
     // fires; and _validityRecheckOwed on the dispatcher alone. The probe is not a pass and never
     // touches the pass bookkeeping. _editStamp moves synchronously on the caller's context as
     // each field change arrives and as DiscloseLoadedValuesAsync begins, and
@@ -181,11 +184,16 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // set empties when the stored answer is replaced by a check that began at the current edit
     // stamp (RecordSubmitAnswer): a check that began before any later edit answers for values the
     // model no longer holds, and would bring back exactly what the set holds back. A refresh the
-    // apply arms at zero brings that answer (RecheckHeldBackAnswers).
+    // apply arms at zero brings that answer (RecheckHeldBackAnswers). An apply made while a submit
+    // runs, or a load begun at the latest edit, arms none, since that pass is on its way to the
+    // answer; if the pass ends without one, the re-check is asked for again at its end, under the
+    // same guards (RunPassAsync).
     private readonly HashSet<FieldIdentifier> _heldBackFields = [];
 
     // Whether the re-check an apply armed for the held-back set has still to begin: set as
-    // ApplyServerIssues arms it, and cleared as a refresh begins, beside _pendingRefreshFields.
+    // RecheckHeldBackAnswers arms it, after the apply itself, a probe's exit, or the end of a
+    // submit or load the apply counted on, and cleared as a refresh begins, beside
+    // _pendingRefreshFields.
     // RefreshArmedByEdit reads it as it reads that list, because the re-check answers edits the
     // stored answer predates, which no re-check had answered.
     private bool _refreshArmedByApply;
@@ -2307,6 +2315,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         var ended = false;
         DisplacedChecks? owed = null;
 
+        // Whether a rule failed under this pass, read where its end asks for the re-check a server
+        // reply left to it. Kept apart from the fault issue, which a reply applied from a handler
+        // as the fault is reported clears before that end.
+        var passFaulted = false;
+
         // How many more times a submit checks again before it reports an answer an edit made
         // while it ran has outdated (see the verdict dispatch). No other kind checks again.
         var restartsLeft = kind == PassKind.Submit ? SubmitRestarts : 0;
@@ -2376,6 +2389,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     // this). A submit and a load also log it, before the event a handler could throw
                     // from, because their caller gets an outcome where a throw would have reached
                     // the host's error handling; the submit's outcome carries the exception.
+                    // Recorded first, so a handler that throws below cannot hide it.
+                    passFaulted = true;
                     if (kind is PassKind.Submit or PassKind.Load)
                     {
                         ReportFaultedCheck(kind, exception);
@@ -2605,6 +2620,30 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                         if (recheck)
                         {
                             RecheckFormValidity(owedByLoad: owed is { LoadBegan: true });
+                        }
+
+                        // Last comes the re-check a server reply skipped while this submit or load
+                        // ran, because the pass was on its way to an answer that empties the
+                        // held-back set (HeldBackAnswerOnItsWay). An end that detached a record of
+                        // what the pass displaced came without such an answer, so the re-check is
+                        // asked for again under the apply's own guards; the reply landed its
+                        // issues, so landed is true. A submit that lands an outdated answer
+                        // detaches no record when no live check stood down for it, and needs no
+                        // ask: the edit that outdated it armed the refresh, as every edit made
+                        // while a submit runs does. A rule that failed under this pass, or a fault
+                        // still standing from a check after the reply, means the client is still
+                        // throwing, and the re-check would run that rule again, so none is owed, as
+                        // none is after a faulted probe (EndProbe). The pass's own failure is read
+                        // apart from the fault issue, because a reply applied from a handler as
+                        // that failure is reported clears the issue before this dispatch. This comes
+                        // after the IsFormValid question and the deferred fires, because a zero
+                        // wait can start the re-check inside its arm, and a question asked after
+                        // that would find nothing armed and arm a validity check beside it. Asked
+                        // here, the arm stands down any validity check they armed, as an apply's
+                        // arm does.
+                        if (owed is not null)
+                        {
+                            RecheckHeldBackAnswers(landed: true, clientFaulted: passFaulted || _faultIssue is not null);
                         }
 
                         return Task.CompletedTask;
@@ -4247,9 +4286,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>Whether an apply's re-check is due: something landed, the held-back set holds fields, the client had not faulted, the engine lives, no refresh is armed or deferred, nothing on its way answers the latest edit, and the wait passes.</summary>
-    /// <param name="landed">Whether the apply landed at least one issue.</param>
-    /// <param name="clientFaulted">Whether a check had faulted before the apply cleared the fault.</param>
+    /// <summary>Whether the held-back set's re-check is due: something landed, the set holds fields, the client had not faulted, the engine lives, no refresh is armed or deferred, nothing on its way answers the latest edit, and the wait passes.</summary>
+    /// <param name="landed">Whether the apply landed at least one issue; <see langword="true"/> from a later arm, at a probe's exit or a submit's or load's end.</param>
+    /// <param name="clientFaulted">Whether the client's last check faulted, which the re-check would only repeat.</param>
     /// <returns><see langword="true"/> when <see cref="RecheckHeldBackAnswers"/> arms the re-check or waits for a probe to do so.</returns>
     private bool HeldBackRecheckDue(bool landed, bool clientFaulted) =>
         landed
@@ -4276,8 +4315,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         HeldBackRecheckDue(landed, clientFaulted) && !ProbeComputesLatestEdit;
 
     /// <summary>Arms the whole-form re-check at zero for the held-back set, unless the apply landed nothing, the client had faulted, the re-check cannot run, or something on its way answers the latest edit; waits for a probe still computing that edit.</summary>
-    /// <param name="landed">Whether the apply landed at least one issue.</param>
-    /// <param name="clientFaulted">Whether a check had faulted before the apply cleared the fault.</param>
+    /// <param name="landed">Whether the apply landed at least one issue; <see langword="true"/> from a later arm, at a probe's exit or a submit's or load's end.</param>
+    /// <param name="clientFaulted">Whether the client's last check faulted, which the re-check would only repeat.</param>
     // After the store rebuild, because a zero wait can start the refresh inside the arm under a
     // clock that fires one there, and the apply's own view publishes first. Through the refresh
     // timer, so the refresh's deferral holds: behind a live pass, a submit or a load in flight it
@@ -4285,7 +4324,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // reveals nothing, a re-check already on its way brings the answer, a client that faulted
     // would only put back the fault the apply cleared, and a check in flight that began at the
     // latest edit stamp replaces the stored answer with one the set no longer needs to hold back.
-    // A submit counts whenever it runs, since one an edit outdates checks again. A
+    // A submit counts whenever it runs, since one an edit outdates checks again. A submit or a
+    // load counted this way can still end without that answer, and the re-check is then asked for
+    // again at its end, under the same guards (RunPassAsync). A
     // RefreshDebounce that never passes arms nothing, so the set waits for the next check that
     // replaces the stored answer: a submit, a load, or a live check under the submit profile.
     //
@@ -4323,7 +4364,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Whether the check in flight will replace the stored submit answer with one that empties the held-back set: a submit, or a refresh, a load or a submit-profile live pass begun at the latest edit stamp.</summary>
-    // The live profile is read as ReAnswerOnItsWay reads it, at the ask.
+    // The live profile is read as ReAnswerOnItsWay reads it, at the ask. A submit or a load counted
+    // here can still end without that answer (cancelled, faulted, or a submit whose restarts are
+    // spent), and the re-check is then asked for again at its end, under the same guards
+    // (RunPassAsync).
     private bool HeldBackAnswerOnItsWay =>
         _currentPass is { } pass
         && (pass.Kind == PassKind.Submit
