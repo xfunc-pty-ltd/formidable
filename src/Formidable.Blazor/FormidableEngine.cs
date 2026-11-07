@@ -48,7 +48,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // when the load's apply adopts fields; _pendingDebouncedLiveFields when the live timer fires,
     // when a field-set change prunes it, and in the dispatch after a pass ends, where a check
     // given back joins it or a cleared LiveDebounce empties it; _validityCheckArmed when the
-    // validity timer fires, when a load's adopted answer or a probe's exit that arms an apply's
+    // validity timer fires, when a landing's adopted answer or a probe's exit that arms an apply's
     // re-check drops the check (StandDownValidityCheck), and in the dispatch after a pass ends,
     // where ArmDeferredFires arms or drops the check, RecheckFormValidity arms it, and the
     // held-back re-check's arm drops it; and
@@ -62,10 +62,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // _submitAnswered, _validityCheckOwedByLoad and _giveBacksPending move on the dispatcher, with
     // the one exception the end of this paragraph names: the marker as the timer fires and in the
     // probe's own exits, each dispatched, _submitAnswered in the submit's apply,
-    // _validityCheckOwedByLoad in the dispatch after a pass ends, as a submit or load lands, as
-    // the timer fires or its deferred check is dropped, and as a probe's exit that arms an apply's
-    // re-check drops its check, and _giveBacksPending in the dispatch
-    // that ends a submit or load and the one after it. So do the three deferral records
+    // _validityCheckOwedByLoad in the dispatch after a pass ends, as a submit or load lands or any
+    // landing adopts IsFormValid, as the timer fires or its deferred check is dropped, and as a
+    // probe's exit that arms an apply's re-check drops its check, and _giveBacksPending in the
+    // dispatch that ends a submit or load and the one after it. So do the three deferral records
     // (_refreshFireDeferred, _liveFireDeferred, _validityFireDeferred): set as a fire defers, or as
     // a submit or load gives back a check it displaced, and cleared in a dispatch of their own
     // after the end of that pass, the validity check's record also as its fire stands down, as a
@@ -336,8 +336,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // has still to begin; the end of a pass its fire waited for arms it again, and a landing an
     // edit outdated arms it under any LiveDebounce (RecheckFormValidity), as does an unanswered
     // submit or load where IsFormValid can be stale. The flag is set as it is armed and cleared
-    // as it fires or stands down, or as a load's adopted answer, an edit that arms the refresh or
-    // an apply that arms it for answers it held back drops it (StandDownValidityCheck).
+    // as it fires or stands down, or as a landing's adopted answer, an edit that arms the refresh
+    // or an apply that arms it for answers it held back drops it (StandDownValidityCheck).
     // ReAnswerOnItsWay counts it while armed, and then counts the probe the fire starts through
     // the marker below.
     private ITimer? _validityTimer;
@@ -363,8 +363,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // and clears this flag; the fire's other stand-downs apply to it unchanged. Set as the check
     // is armed; cleared as the fire runs or stands down, as a deferred check is dropped, as an
     // edit that arms the refresh drops the check (that refresh answers the whole model, the
-    // load's change included), and as a submit or load lands, since that answer is the one this
-    // check was owed.
+    // load's change included), and as a submit or load lands or any landing adopts IsFormValid,
+    // since that answer is the one this check was owed.
     private bool _validityCheckOwedByLoad;
 
     private CancellationTokenSource? _passCts;
@@ -3315,6 +3315,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // nothing to keep current, so the adoption writes nothing. A probe started before the page
     // turned tracking off still files its rule answers and coverage, and leaves IsFormValid as it
     // was.
+    //
+    // An adopted answer is IsFormValid's for the latest edit, so a validity check armed or waiting
+    // has nothing left to answer, whichever kind of landing adopted it, and is dropped here. Kept,
+    // it would stand in for the check a later load owes as it ends unanswered, since
+    // EditValidityAnswered counts an armed check. Once a submit has answered, that check's fire
+    // stands down, and the load's own change would go unanswered. An outdated answer keeps the
+    // check, as that edit's answer.
     private bool AdoptFormValidity(ValidationReport report, int beganAtEditStamp)
     {
         if (!_options.TrackFormValidity)
@@ -3328,6 +3335,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return false;
         }
 
+        StandDownValidityCheck();
         _formValidityStamp++;
 
         // Written with no notification of its own. Every caller is a landing's verdict apply, and
@@ -4437,14 +4445,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // it — a load is not a submit — so on a form that has never submitted the
                 // ledgers stay empty and that channel shows nothing at all.
                 //
-                // An adopted answer is IsFormValid's for the latest edit, so a validity check
-                // armed or waiting for this load has nothing left to answer, and dropping it keeps
-                // its probe from running an async rule a second time. An edit made while the load
-                // ran outdates the answer instead; the check then stays, as that edit's answer.
-                if (AdoptFormValidity(report, beganAtEditStamp))
-                {
-                    StandDownValidityCheck();
-                }
+                // An adopted answer drops a validity check armed or waiting for this load, which
+                // keeps its probe from running an async rule a second time (AdoptFormValidity).
+                AdoptFormValidity(report, beganAtEditStamp);
 
                 _submitVerdictErrors = GroupByResolvedField(report.Errors);
                 _submitVerdictAdvisories = GroupByResolvedField(report.Advisories);

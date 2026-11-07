@@ -462,6 +462,72 @@ public class FormidableEngineCancelledPassTests
         Assert.Equal(beforeCancel + 1, form.Validator.Runs);
     }
 
+    // Under a window that never closes, an edit arms the validity check, and a submit that answers
+    // before the check comes due leaves it armed. One that comes due while the submit runs waits for
+    // it, and the submit's end arms it again. The page then writes a record onto the model and loads
+    // it within RefreshDebounce of the submit, and the load ends without an answer. The submit has
+    // answered everything that check was armed for, so IsFormValid is still owed a check for the
+    // load's change.
+    // Mutation: drop the validity check only where a load's answer is adopted, not wherever a
+    // landing adopts IsFormValid. The check the submit left armed then counts as the answer the load
+    // owes, stands down at its fire for the answered submit, and IsFormValid stays true on a model
+    // whose Name is empty.
+    [Theory]
+    [InlineData(false, false)] // the submit answers before the check comes due; the caller cancels the load
+    [InlineData(true, false)] // the check comes due while the submit runs, and waits for it
+    [InlineData(false, true)] // the load's rule throws
+    [InlineData(true, true)]
+    public async Task Under_an_infinite_live_debounce_IsFormValid_answers_an_unanswered_load_after_an_answered_submit(
+        bool dueDuringSubmit, bool loadFaults)
+    {
+        using var form = Build(
+            new FormidableOptions { TrackFormValidity = true, LiveDebounce = Timeout.InfiniteTimeSpan },
+            new Recheck { Name = "Bo" });
+        Assert.True(await UntilAsync(() => form.Engine.IsFormValid));
+
+        form.Validator.Hold = dueDuringSubmit;
+        form.Edit("Bob"); // the window holds it for good; the validity check is armed
+        var submit = form.Engine.ValidateForSubmitAsync();
+        if (dueDuringSubmit)
+        {
+            form.Time.Advance(Refresh); // the check comes due and waits for the submit
+            form.Validator.ReleaseHeldRuns();
+        }
+
+        Assert.True((await submit).CanProceed);
+        Assert.True(form.Engine.IsFormValid);
+
+        form.Model.Name = string.Empty; // written straight onto the model, as a page loading a record does
+        if (loadFaults)
+        {
+            form.Validator.Release();
+            form.Validator.ThrowOnRun = form.Validator.Runs + 1;
+            await form.Engine.DiscloseLoadedValuesAsync();
+        }
+        else
+        {
+            form.Validator.Hold = true;
+            using var cancel = new CancellationTokenSource();
+            var load = form.Engine.DiscloseLoadedValuesAsync(cancel.Token);
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
+            form.Validator.Release();
+        }
+
+        var beforeCheck = form.Validator.Runs;
+        Assert.True(form.Engine.IsFormValid); // the check is owed behind RefreshDebounce
+
+        form.Time.Advance(Refresh);
+        Assert.True(await UntilAsync(() => !form.Engine.IsFormValid));
+
+        Assert.False(form.Engine.IsFormValid);
+        Assert.Equal(beforeCheck + 1, form.Validator.Runs);
+
+        form.Time.Advance(TimeSpan.FromHours(1));
+        await Task.Delay(50);
+        Assert.Equal(beforeCheck + 1, form.Validator.Runs);
+    }
+
     // A submit has answered, and the whole-form re-check has answered the edit made while it ran,
     // so IsFormValid already answers the model as it stands. A submit the caller then cancels
     // changes nothing. This validator can reuse no stored answer, so a check here would run the

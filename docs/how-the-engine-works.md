@@ -729,8 +729,8 @@ and every stand-down its fire tests applies to it
 
 An answered submit stands the validity check down because each later edit arms the refresh. A
 load's own change arms none, so the check owed for a record holding a load passes that test until
-a refresh is armed, waiting or running, or a later submit or load lands. A later load that lands
-with its answer adopted drops the check outright, since that answer is the one it was owed.
+a refresh is armed, waiting or running, or a later submit or load lands. Any later landing that
+adopts `IsFormValid` drops the check outright, since that answer is the one it was owed.
 
 A superseded pass's pending scope goes to the pass that answers its fields in its place. A newer
 live pass takes over a live pass's scope, and a refresh's when it runs the submit profile. A newer
@@ -1240,11 +1240,15 @@ outdated its answer, or when it ended without an answer while `IsFormValid` coul
 The probe stands down for a submit or a load in flight, which computes the same quantity for the
 model it read and adopts it, unless an edit after its begin has outdated it (below).
 
-A load that lands with its answer adopted drops a validity check armed or waiting for it,
-disarming its timer and clearing its record. That answer is `IsFormValid`'s for the latest edit,
-and a probe behind it would only run an async rule a second time. An edit made while the load ran
-outdates the answer, which then adopts nothing, so the check stays at its own time as that edit's
-answer.
+A pass that lands with its answer adopted drops a validity check armed or waiting for it,
+disarming its timer and clearing its record. Every kind that adopts does so: a submit, a refresh,
+a load, and a live pass that runs the submit profile. That answer is `IsFormValid`'s for the
+latest edit, and a probe behind it would only run an async rule a second time.
+
+Kept, the check would also stand in for the one a later load owes as it ends unanswered. Behind
+an answered submit its fire stands down, so the load's own change would go unanswered. An edit
+made while the pass ran outdates the answer, which then adopts nothing, so the check stays at its
+own time as that edit's answer.
 
 On a rule-capable validator the probe plans against the store exactly as a pass does, executes
 the submit-selected rules with no fresh verdict at its begin stamp, and files what it ran. On any
