@@ -151,8 +151,8 @@ internal static class FirstErrorFocus
 
         // The shipped service tells its script this attempt is the retry, so focus the visitor
         // moved while the fallback ran stays put. Any other service gets a plain second attempt.
-        var landed = focusService is IFormidableFocusRetry retry
-            ? await retry.RetryFocusAsync(field)
+        var landed = focusService is FormidableFocusService shipped
+            ? await shipped.RetryFocusAsync(field)
             : await focusService.FocusAsync(field);
         return landed ? FocusMoveResult.Landed : FocusMoveResult.Missed;
     }

@@ -121,6 +121,15 @@ internal sealed class RenderedFieldSetReconciler
         }
     }
 
+    /// <summary>Both roots' <c>IsCurrent</c>: whether <paramref name="engine"/> counts <paramref name="mark"/> current and no rendered-field-set change waits here.</summary>
+    /// <param name="engine">The root's engine.</param>
+    /// <param name="mark">The mark taken as the request was sent.</param>
+    /// <returns><see langword="true"/> when nothing that drops a reply marked with <paramref name="mark"/> has happened since.</returns>
+    // A waiting change moves the generation once it is taken in, so the mark cannot be current
+    // while one waits, and reading that leaves the call free of side effects.
+    internal bool IsCurrent(IFormidableEngine engine, ServerRequestMark mark) =>
+        !HasRenderedChange && engine.IsCurrent(mark);
+
     /// <summary>Forgets the last version reconciled, because a rebuilt engine's registry counts from zero and could match it.</summary>
     internal void Reset() => _reconciledVersion = -1;
 }

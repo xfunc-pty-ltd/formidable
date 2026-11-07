@@ -2,7 +2,6 @@
 // moment, and whether the visitor has pressed a key or a pointer button since. One is enough,
 // because only the newest focus move retries, and every retry follows its own first attempt.
 let missedFocus = null;
-let listeningForPress = false;
 
 // A third argument marks the retry a focus move makes after its fallback answered true. Every
 // other call is a first attempt.
@@ -97,13 +96,9 @@ function onPress(event) {
 }
 
 // On the document in the capture phase, so a press is seen wherever it lands and whatever stops
-// its propagation further down.
+// its propagation further down. The script keeps no flag to consult first: adding a listener the
+// document already holds registers nothing more, and removing one it does not hold does nothing.
 function listenForPress(wanted) {
-    if (wanted === listeningForPress) {
-        return;
-    }
-
-    listeningForPress = wanted;
     const bind = wanted ? "addEventListener" : "removeEventListener";
     document[bind]("keydown", onPress, true);
     document[bind]("pointerdown", onPress, true);

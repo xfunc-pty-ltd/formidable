@@ -27,7 +27,7 @@ public sealed class FormidableFormContext
     /// <param name="engine">The engine the context exposes.</param>
     /// <param name="focusFirstError">The root's <c>FocusFirstErrorAsync</c>, so its <c>PrepareFocus</c> and <c>FocusFallback</c> travel with the move.</param>
     /// <param name="currentEngine">Reads the engine the root holds when it is called, or <see langword="null"/> once the root holds none.</param>
-    /// <param name="isSubmitting">Reads the flag the context reports for the root; <see langword="null"/> reads the engine's.</param>
+    /// <param name="isSubmitting">Reads the flag the context reports for the root.</param>
     // A delegate over the root's public method rather than over the move itself, deliberately:
     // the move has exactly one implementation, and it is reached through the root so that the
     // root's PrepareFocus and FocusFallback come with it. The engine reader is the root's too,
@@ -37,7 +37,7 @@ public sealed class FormidableFormContext
         IFormidableEngine engine,
         Func<Task<bool>> focusFirstError,
         Func<IFormidableEngine?> currentEngine,
-        Func<bool>? isSubmitting = null)
+        Func<bool> isSubmitting)
         : this(engine)
     {
         _focusFirstError = focusFirstError;

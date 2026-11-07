@@ -1495,9 +1495,10 @@ attempt that missed, and after the fallback answers, so a move overtaken while i
 was out never calls the fallback. Its result is `StoodDown` rather than `Missed`, so `MoveAsync`
 writes no miss diagnostic for it.
 
-The visitor can cancel it too. The shipped `FormidableFocusService` also implements the internal
-`IFormidableFocusRetry`, whose `RetryFocusAsync` calls `focusField(id, scrollId, true)`. A consumer's
-own focus service, or one wrapping the shipped one, gets a plain second `FocusAsync` instead.
+The visitor can cancel it too. The shipped `FormidableFocusService` has a retry of its own,
+`RetryFocusAsync`, which calls `focusField(id, scrollId, true)`; the move finds it by testing for that
+class. A consumer's own focus service, or one wrapping the shipped one, gets a plain second
+`FocusAsync` instead.
 
 In the script, a first attempt that misses records the field's id, the element holding focus, and
 whether a trusted `keydown` or `pointerdown` has happened since. Two capture-phase document

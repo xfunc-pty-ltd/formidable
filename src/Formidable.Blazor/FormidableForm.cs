@@ -1027,8 +1027,8 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <see cref="IFormidableEngine.IsCurrent"/>'s. Call it from the renderer's synchronization
     /// context.
     /// </remarks>
-    // A change OnAfterRenderAsync has not yet taken in moves the generation once it is, so the mark
-    // cannot be current while one waits, and reading that leaves the call free of side effects.
+    // A change OnAfterRenderAsync has not yet taken in counts as a move; the reconciler answers for
+    // both roots.
     public bool IsCurrent(ServerRequestMark mark)
     {
         if (_disposed)
@@ -1037,7 +1037,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         }
 
         var engine = RequireEngine();
-        return !Reconciler.HasRenderedChange && engine.IsCurrent(mark);
+        return Reconciler.IsCurrent(engine, mark);
     }
 
     /// <summary>Applies a server reply as <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> does, focus move included, unless the form has moved on since <paramref name="sentAt"/> was taken.</summary>
