@@ -101,6 +101,7 @@ public interface IFormidableEngine
     /// <param name="cancellationToken">Cancels the check.</param>
     /// <returns>The outcome; blocked, with nothing shown, when a newer submit or load answered in its place (its report empty when the check honoured the cancellation, its own otherwise), and when values were edited during each of its three checks and the last found no error; blocked, with the form's fault message showing and the exception as <see cref="SubmitOutcome.Fault"/>, when a rule failed during the check while no newer submit or load had taken its place.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled before the check answered.</exception>
+    /// <exception cref="ObjectDisposedException">The engine was disposed; the returned task faults with it and no rule runs.</exception>
     /// <exception cref="InvalidOperationException">The submit profile leaves out the default rules and selects no rule of the validator, or names a ruleset a <see cref="Formidable.ProfiledValidator{T}"/> never registered, or the validator's <c>GroupBySelectionClass</c> returns more or fewer rules than it was handed.</exception>
     /// <remarks>
     /// A value edited while the check runs makes it check again before it reports, at most
@@ -114,6 +115,7 @@ public interface IFormidableEngine
     /// <param name="cancellationToken">Cancels the check; a cancelled call discloses nothing.</param>
     /// <returns>A task that completes when the fields have been marked and the check that discloses them has answered, or once a rule that failed during that check has been reported as a fault, with nothing disclosed.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled before the whole-model check answered.</exception>
+    /// <exception cref="ObjectDisposedException">The engine was disposed; the returned task faults with it and no rule runs.</exception>
     /// <exception cref="InvalidOperationException">The submit profile leaves out the default rules and selects no rule of the validator, or names a ruleset a <see cref="Formidable.ProfiledValidator{T}"/> never registered, or the validator's <c>GroupBySelectionClass</c> returns more or fewer rules than it was handed.</exception>
     /// <remarks>
     /// Holding a value means what <c>NotEmpty()</c> means for the member's declared type, so a
