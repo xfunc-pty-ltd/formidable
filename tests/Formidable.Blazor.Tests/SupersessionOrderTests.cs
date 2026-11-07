@@ -34,6 +34,7 @@ public class SupersessionOrderTests
         private volatile bool _hold;
         private volatile bool _fails;
         private volatile bool _throwsOnCancel;
+        private volatile bool _throws;
         private volatile Action? _onCancel;
         private TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _runs;
@@ -66,6 +67,13 @@ public class SupersessionOrderTests
             set => _throwsOnCancel = value;
         }
 
+        /// <summary>Whether a run that answers throws instead.</summary>
+        public bool Throws
+        {
+            get => _throws;
+            set => _throws = value;
+        }
+
         /// <summary>A callback a run that starts registers on its token, which runs when the token is cancelled.</summary>
         public Action? OnCancel
         {
@@ -77,8 +85,13 @@ public class SupersessionOrderTests
         public void Release()
         {
             Hold = false;
-            _gate.TrySetResult();
+            Volatile.Read(ref _gate).TrySetResult();
         }
+
+        /// <summary>Lets the runs held now answer, and holds the later ones while <see cref="Hold"/> is set.</summary>
+        public void ReleaseHeld() =>
+            Interlocked.Exchange(ref _gate, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))
+                .TrySetResult();
 
         protected override void ConfigureDraftRules()
         {
@@ -105,6 +118,11 @@ public class SupersessionOrderTests
                     var gate = Volatile.Read(ref _gate).Task;
                     Interlocked.Increment(ref _held);
                     await gate.WaitAsync(ct);
+                }
+
+                if (Throws)
+                {
+                    throw new InvalidOperationException("The rule failed.");
                 }
 
                 return !Fails;
@@ -337,6 +355,123 @@ public class SupersessionOrderTests
         Assert.True(await UntilAsync(() => validator.Runs == 2));
         Assert.True(await UntilAsync(() => !engine.IsValidating));
         Assert.Equal("up,down", record.Shape(seen => seen.Submitting));
+    }
+
+    /// <summary>What ends an edit's check before it runs a rule.</summary>
+    public enum DeadCheck
+    {
+        /// <summary>The callback a rule left on the token of the check it cancels throws.</summary>
+        CancellationCallbackThrows,
+
+        /// <summary>A validation-state handler throws as the check's begin is published.</summary>
+        BeginNotificationThrows,
+    }
+
+    // A live check that runs the submit profile counts, from its begin, as on its way to answering
+    // IsFormValid for the edit it began at, so a validity check due for that edit stands down for
+    // it. A load whose answer an edit outdated owes that validity check as it ends, and the live
+    // check that follows the load is held. The next edit's check then ends before it runs a rule,
+    // so it answers nothing and must not count: the validity check runs and answers the edit.
+    // Mutation: keep the record where RunPassAsync ends a live check that did not get through its
+    // begin, and both rows fail: the validity check stands down, and the rule never runs again.
+    // Mutation: count the check as through its begin once its cancel returns, before the begin is
+    // published, and the BeginNotificationThrows row fails the same way.
+    [Theory]
+    [InlineData(DeadCheck.CancellationCallbackThrows)]
+    [InlineData(DeadCheck.BeginNotificationThrows)]
+    public async Task An_edits_check_that_ends_before_it_runs_a_rule_leaves_IsFormValid_to_the_validity_check(DeadCheck dead)
+    {
+        var model = new Account();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var validator = new HeldValidator();
+        using var engine = new FormidableEngine<Account>(
+            model, editContext, new FluentValidationModelValidator<Account>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions { TrackFormValidity = true }, time, work => work());
+        Assert.True(await UntilAsync(() => engine.IsFormValid)); // the check at build
+        var load = await HoldTheCheckAfterAnOutdatedLoadAsync(
+            engine, editContext, model, validator, throwsOnCancel: dead == DeadCheck.CancellationCallbackThrows);
+
+        var throwOnce = dead == DeadCheck.BeginNotificationThrows;
+        editContext.OnValidationStateChanged += (_, _) =>
+        {
+            if (throwOnce)
+            {
+                throwOnce = false;
+                throw new InvalidOperationException("The validation-state handler threw.");
+            }
+        };
+
+        Edit(editContext, model, nameof(Account.Other), "y");
+        validator.ThrowsOnCancel = false;
+        Assert.False(engine.IsValidating);
+        Assert.Equal(3, validator.Runs);
+        await load;
+
+        validator.Fails = true;
+        validator.Release();
+        WithoutContext(() =>
+        {
+            time.Advance(new FormidableOptions().RefreshDebounce);
+            return true;
+        });
+
+        Assert.True(await UntilAsync(() => validator.Runs == 4));
+        Assert.False(engine.IsFormValid);
+    }
+
+    // A check that runs its rule and meets a failure has answered with the fault, and a validity
+    // check for the same edit would run the failing rule again, so the check still counts as that
+    // edit's: the validity check the load owed stands down.
+    // Mutation: drop the test of whether the check got through its begin where RunPassAsync ends a
+    // live check that did not land, and the validity check runs the failing rule a fifth time.
+    [Fact]
+    public async Task A_rule_that_failed_is_not_run_again_by_the_validity_check_for_the_same_edit()
+    {
+        var model = new Account();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var validator = new HeldValidator();
+        using var engine = new FormidableEngine<Account>(
+            model, editContext, new FluentValidationModelValidator<Account>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions { TrackFormValidity = true }, time, work => work());
+        Assert.True(await UntilAsync(() => engine.IsFormValid)); // the check at build
+        var load = await HoldTheCheckAfterAnOutdatedLoadAsync(engine, editContext, model, validator, throwsOnCancel: false);
+
+        validator.Hold = false; // the next run answers, and the held one stays held
+        validator.Throws = true;
+        Edit(editContext, model, nameof(Account.Other), "y");
+        validator.Throws = false;
+        Assert.False(engine.IsValidating);
+        Assert.Equal(4, validator.Runs);
+        await load;
+
+        WithoutContext(() =>
+        {
+            time.Advance(new FormidableOptions().RefreshDebounce);
+            return true;
+        });
+
+        Assert.Equal(4, validator.Runs);
+        Assert.True(engine.IsFormValid);
+    }
+
+    /// <summary>Runs a load that an edit outdates, which owes IsFormValid the validity check as it ends, and holds the live check that follows the load, its callbacks registered.</summary>
+    /// <returns>The load, which ends with that live check.</returns>
+    private static async Task<Task> HoldTheCheckAfterAnOutdatedLoadAsync(
+        FormidableEngine<Account> engine, EditContext editContext, Account model, HeldValidator validator, bool throwsOnCancel)
+    {
+        validator.Hold = true;
+        var load = WithoutContext(() => engine.DiscloseLoadedValuesAsync());
+        Assert.True(await UntilAsync(() => validator.Held == 1));
+        Assert.Equal(2, validator.Runs);
+        Edit(editContext, model, nameof(Account.Other), "x");
+        validator.ThrowsOnCancel = throwsOnCancel;
+        validator.ReleaseHeld();
+        Assert.True(await UntilAsync(() => validator.Held == 2));
+        Assert.Equal(3, validator.Runs);
+        Assert.True(engine.IsValidating);
+        return load;
     }
 
     // A check that begins cancels the token of the check before it, and a callback a rule left on

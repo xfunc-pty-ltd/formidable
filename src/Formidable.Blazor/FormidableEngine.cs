@@ -86,7 +86,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // dispatcher as that probe exits (EndProbe);
     // _lastSubmitLiveEditStamp as a live check that runs the submit profile begins, and as a
     // submit's or a load's begin cancels one (RecordDisplaced), on whichever context that begin
-    // runs;
+    // runs, and on the dispatcher as a live check ends before it gets through its begin;
     // _heldBackRecheckOwed on the caller's context in ApplyServerIssues, and on the dispatcher as
     // the probe it waits for exits and in the dispatch after a submit's or load's end;
     // _refreshArmed where the refresh timer is armed and where it
@@ -398,7 +398,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // before any has. Its landing adopts IsFormValid, so one begun at the current stamp answers
     // the latest edit as a probe begun there does. A submit or a load that cancels it drops this
     // record as it begins (RecordDisplaced), then answers in its place or gives the check back to
-    // run again.
+    // run again. A live check that ends before it gets through its begin drops it too, because it
+    // ran no rule: its cancel of the check before it threw, or a handler of its begin notification
+    // did.
     private int _lastSubmitLiveEditStamp = -1;
 
     // Whether the handler running, a committed change's or a server apply's, arms or starts a
@@ -2325,6 +2327,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // as the fault is reported clears before that end.
         var passFaulted = false;
 
+        // Whether this pass got through its begin: the cancel of the check before it, and the
+        // notification that it began. A live check that ends short of that ran no rule.
+        var begun = false;
+
         // How many more times a submit checks again before it reports an answer an edit made
         // while it ran has outdated (see the verdict dispatch). No other kind checks again.
         var restartsLeft = kind == PassKind.Submit ? SubmitRestarts : 0;
@@ -2386,6 +2392,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }
 
             await BeginValidatingAsync(pass, scope).ConfigureAwait(false);
+            begun = true;
 
             while (true)
             {
@@ -2595,6 +2602,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     await EndPassWithoutLandingAsync(pass, () =>
                     {
                         ended = true;
+
+                        // A live check that ends before it got through its begin ran no rule, so
+                        // nothing answers the edit it began at, and its record must not say a check
+                        // is on its way to IsFormValid (see _lastSubmitLiveEditStamp). One that got
+                        // through it keeps the record however it ends here: a check whose rule
+                        // failed has given its answer, which a validity check for the same edit
+                        // would only repeat.
+                        if (kind == PassKind.Live && !begun && _lastSubmitLiveEditStamp == pass.EditStamp)
+                        {
+                            _lastSubmitLiveEditStamp = -1;
+                        }
 
                         // Detached in the dispatch that ends the pass, so a submit or load that
                         // begins before the dispatch below opens a record of its own rather than

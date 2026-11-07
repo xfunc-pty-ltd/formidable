@@ -1327,6 +1327,11 @@ starts a live pass that answers it, or the probe beside a narrowed one.
 A submit or a load that cancels such a live pass as it begins drops its record, since that pass
 will land nothing.
 
+Such a live pass also drops its own record if it ends before it gets through its begin, since it
+ran no rule: its cancel of the older pass threw, or a handler of its begin notification did. One
+whose rule failed keeps the record, because a probe for the same edit would only run the failing
+rule again.
+
 A submit or a load that ends without an answer owes the same check at its end where `IsFormValid`
 can be stale, under the same test ([supersession and deferral](#supersession-and-deferral)).
 
