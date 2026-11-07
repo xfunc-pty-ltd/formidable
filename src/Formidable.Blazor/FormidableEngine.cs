@@ -775,9 +775,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // failure under when that is not the field the rule names (a model-level Custom, say). A
     // DelegatingModelValidator subclass that runs a check of its own declares only the wrapped
     // validator's paths unless it overrides GetDeclaredFieldPaths. A field only those check shows
-    // no "checking" while they run, though the submit still waits for them. A validator that
-    // cannot say which fields it checks keeps every field lit, as does a selection that throws,
-    // which the pass then reports through its fault policy. The set is read once, as the submit
+    // no "checking" while they run, though the submit still waits for them. The rows of a
+    // collection that refuses the walk show none either, since such a collection names no rows
+    // (CollectionCount), though the submit still checks them. A validator that cannot say which
+    // fields it checks keeps every field lit, as does a selection that throws, which the pass
+    // then reports through its fault policy. The set is read once, as the submit
     // begins. A submit that checks again after an edit keeps it, so a row added while the submit
     // runs shows no "checking" of its own.
     private HashSet<FieldIdentifier>? SubmitPendingScope(ValidationProfile profile)
@@ -4694,7 +4696,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>The element count of the collection at <paramref name="path"/>.</summary>
     /// <param name="path">The collection's path.</param>
     /// <param name="walked">The load's record of the lists it has walked; <see langword="null"/> outside a load.</param>
-    /// <returns>The count; zero when the path resolves to nothing, to a non-collection or to an empty collection, which all mean no rows to expand into.</returns>
+    /// <returns>The count; zero when the path resolves to nothing, to a non-collection, to an empty collection or to a collection that refuses the walk, which all mean no rows to expand into.</returns>
     // A collection that is itself an element (a row of a list of lists: Matrix[0], as Matrix[][]
     // expands) is read from its list through the load's element read, under the test
     // ToFieldIdentifier's list branch makes, because the introspector reads members and never
@@ -4702,7 +4704,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // and a load confirms none of them. Anything else is a member, a collection a struct holds
     // included. In a load, a list read only by walking is counted from the load's walk of it,
     // which the reads of its rows then share; one that refused that walk partway is counted by a
-    // walk of its own, which meets the same refusal.
+    // walk of its own, which meets the same refusal. A collection that refuses the walk (a
+    // consumer's own list over a source it reads once) counts zero, the rows before the refusal
+    // included, as one that cannot be read at all does. The refusal stays with that collection:
+    // the required marks, a load and a submit's "checking" all expand through here, and each
+    // keeps every other declared path.
     private int CollectionCount(string path, WalkedLists? walked)
     {
         var resolved = _introspector.Resolve(_model, path);
@@ -4731,13 +4737,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     && walked.TryCount(list, out var walkedCount):
                 return walkedCount;
             case System.Collections.IEnumerable sequence:
-                var count = 0;
-                foreach (var _ in sequence)
+                try
                 {
-                    count++;
-                }
+                    var count = 0;
+                    foreach (var _ in sequence)
+                    {
+                        count++;
+                    }
 
-                return count;
+                    return count;
+                }
+                catch
+                {
+                    return 0;
+                }
             default:
                 return 0;
         }

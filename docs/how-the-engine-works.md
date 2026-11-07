@@ -135,9 +135,10 @@ disarms the gate. A submit reads no stored verdict: it executes its whole select
 
 Its pending scope is the fields the submit profile declares (`GetDeclaredFieldPaths`), resolved as
 the required indicator's map resolves them. Each collection template expands to the rows the model
-holds as the submit begins, and a submit that checks again keeps that scope. A validator that cannot
-be inspected (no `IRuleInspectingValidator<TModel>`, or `CanInspectRules` false), or whose selection
-throws, leaves the scope null, which lights every field.
+holds as the submit begins (to none for a collection whose walk throws), and a submit that checks
+again keeps that scope. A validator that cannot be inspected (no `IRuleInspectingValidator<TModel>`,
+or `CanInspectRules` false), or whose selection throws, leaves the scope null, which lights every
+field.
 
 No declared path names the model-level field, so under an inspecting validator it is not pending
 during a submit. The form-wide signal is `IsValidating`.
@@ -195,8 +196,9 @@ trimming analysers. FluentValidation numbers a collection's items in the order i
 so the item the walk reaches at an index is the one FluentValidation reported there.
 
 Reading the loaded values walks each such list once, at its first read, and takes the rest of its
-rows from that walk. A list whose walk throws partway is walked again by the count, and the throw
-leaves the load as before. A walk per row would make that reading grow with the square of the row count.
+rows from that walk. A list whose walk throws partway is walked again by the count. A walk that
+throws there counts no rows, so the list's templates expand to nothing and the load lands for every
+other field. A walk per row would make that reading grow with the square of the row count.
 
 The element's declared type is the array's element type, or the type argument of the `List<T>` or
 `Collection<T>` the list is or derives from. For a list known only by its generic interface it is
