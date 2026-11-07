@@ -8,7 +8,10 @@ namespace Formidable;
 /// <summary>Reads the validator a child-validator component wraps, and the rulesets scoping it, without a model.</summary>
 // The one read of a child validator. The rule-inspection walk reads every child it meets through
 // it, and the empty-selection check reads each Include that holds a validator instance, so the
-// two agree on which children can be had without a model.
+// two agree on which children can be had without a model. The adaptor's closed type is found on
+// the validator the component holds, as its own type or one of its base types (ClosedGenericType),
+// because the class is open to subclassing (FluentValidation's own polymorphic child validator
+// subclasses it), and a subclass is read through the members of the class it derives from.
 internal static class ChildValidatorReader
 {
     // ValidationContext<T>'s one-argument constructor, found on the open type by a literal typeof
@@ -64,7 +67,7 @@ internal static class ChildValidatorReader
     {
         try
         {
-            var adaptor = ClosedTypeOf(component.Validator, typeof(ChildValidatorAdaptor<,>));
+            var adaptor = ClosedGenericType.Of(component.Validator.GetType(), typeof(ChildValidatorAdaptor<,>));
             if (adaptor is null
                 || adaptor.GetGenericArguments() is not [var judged, var child]
                 || judged != modelType
@@ -120,7 +123,7 @@ internal static class ChildValidatorReader
     {
         try
         {
-            var adaptor = ClosedTypeOf(component.Validator, typeof(ChildValidatorAdaptor<,>));
+            var adaptor = ClosedGenericType.Of(component.Validator.GetType(), typeof(ChildValidatorAdaptor<,>));
             if (adaptor is null || OpenProviderField is null)
             {
                 return null;
@@ -167,26 +170,5 @@ internal static class ChildValidatorReader
         }
 
         return !ReferenceEquals(Read(component, modelType, propertyType).Validator, child);
-    }
-
-    /// <summary>The closed form of <paramref name="openType"/> in the instance's own type or one of its base types, or <see langword="null"/> when it derives from none.</summary>
-    /// <param name="instance">The live object: a component's validator, or the component itself.</param>
-    /// <param name="openType">The open generic class, named by a literal <c>typeof</c> at the call site.</param>
-    /// <returns>The closed type, or <see langword="null"/>.</returns>
-    // The base types are walked because both classes read this way are open to subclassing
-    // (FluentValidation's own polymorphic child validator subclasses the adaptor, and its component
-    // for a nullable struct subclasses the component), and a subclass is read through the members
-    // of the class it derives from. Nothing is built: each type is compared to the open one.
-    internal static Type? ClosedTypeOf(object instance, Type openType)
-    {
-        for (var type = instance.GetType(); type is not null; type = type.BaseType)
-        {
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == openType)
-            {
-                return type;
-            }
-        }
-
-        return null;
     }
 }

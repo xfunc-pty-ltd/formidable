@@ -331,20 +331,10 @@ public sealed partial class FluentValidationModelValidator<TModel>
     // A child validator can be written for a base type of what it validates (an
     // AnimalValidator on a Dog, a PersonValidator included into a CustomerValidator, the
     // IEnumerable<T> validator ForEach hands a List<T>), and its rules are typed on that base, so
-    // the walk reads them under it. The base types are walked as ChildValidatorReader.ClosedTypeOf
-    // walks them, each tested against a literal typeof and nothing built.
-    private static Type ValidatedModelTypeOf(object validator, Type fallback)
-    {
-        for (var type = validator.GetType(); type is not null; type = type.BaseType)
-        {
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(AbstractValidator<>))
-            {
-                return type.GetGenericArguments()[0];
-            }
-        }
-
-        return fallback;
-    }
+    // the walk reads them under it. The base types are walked through ClosedGenericType, which
+    // builds nothing.
+    private static Type ValidatedModelTypeOf(object validator, Type fallback) =>
+        ClosedGenericType.Of(validator.GetType(), typeof(AbstractValidator<>))?.GetGenericArguments()[0] ?? fallback;
 
     /// <summary>The closed <c>ICollectionRule&lt;,&gt;</c> for the rule's model and element types, or <see langword="null"/> when the rule is not one.</summary>
     /// <param name="rule">The rule to classify.</param>
@@ -472,7 +462,9 @@ public sealed partial class FluentValidationModelValidator<TModel>
     // The severity sits in RuleComponent<T, TProperty>.SeverityProvider, a delegate FluentValidation
     // calls with the context and the value when a failure is created. The surface check finds the
     // property once, on the open type named by a literal typeof, and the reading matches it to the
-    // live component's closed type, as the child reading does with the adaptor's members.
+    // live component's closed type, as the child reading does with the adaptor's members. That
+    // closed type is found among the component's base types, because FluentValidation's component
+    // for a nullable struct subclasses it.
     // A provider whose closure is FluentValidation's own is called with a null context. The
     // constant WithSeverity(Severity) closure ignores its arguments and answers. Each
     // model-reading WithSeverity overload stores a FluentValidation wrapper that reads the model
@@ -490,7 +482,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
         Delegate? provider;
         try
         {
-            var closed = ChildValidatorReader.ClosedTypeOf(component, typeof(RuleComponent<,>));
+            var closed = ClosedGenericType.Of(component.GetType(), typeof(RuleComponent<,>));
             if (closed is null)
             {
                 return SeverityReading.Blocks;
