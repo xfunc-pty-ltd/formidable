@@ -4800,14 +4800,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return type.GetElementType();
         }
 
-        for (var candidate = type; candidate is not null; candidate = candidate.BaseType)
+        // A type derives from List<T> or from Collection<T>, never both, so which is asked first
+        // decides nothing.
+        if ((ClosedGenericType.Of(type, typeof(List<>))
+                ?? ClosedGenericType.Of(type, typeof(System.Collections.ObjectModel.Collection<>))) is { } list)
         {
-            if (candidate.IsGenericType
-                && (candidate.GetGenericTypeDefinition() == typeof(List<>)
-                    || candidate.GetGenericTypeDefinition() == typeof(System.Collections.ObjectModel.Collection<>)))
-            {
-                return candidate.GetGenericArguments()[0];
-            }
+            return list.GetGenericArguments()[0];
         }
 
         return elements is System.Collections.IList ? null : ResolvedFieldExtensions.GenericListElementType(type);

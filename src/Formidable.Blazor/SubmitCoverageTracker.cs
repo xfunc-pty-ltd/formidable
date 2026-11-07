@@ -183,26 +183,11 @@ internal sealed class SubmitCoverageTracker(
     /// <summary>Whether <paramref name="model"/> is a <see cref="System.Collections.ObjectModel.KeyedCollection{TKey, TItem}"/>, found by walking its base types.</summary>
     /// <param name="model">A field's model.</param>
     /// <returns><see langword="true"/> when the model is a list and one of its base types is a closed <c>KeyedCollection&lt;TKey, TItem&gt;</c>.</returns>
-    // Base types, unlike interfaces, are read without a trimming warning. Asked only for a field
-    // whose name is not an index, which on a list is rare, so the walk stays off the common path.
-    private static bool IsKeyedCollection(object model)
-    {
-        if (model is not IList)
-        {
-            return false;
-        }
-
-        for (var type = model.GetType(); type is not null; type = type.BaseType)
-        {
-            if (type.IsGenericType
-                && type.GetGenericTypeDefinition() == typeof(System.Collections.ObjectModel.KeyedCollection<,>))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    // Asked only for a field whose name is not an index, which on a list is rare, so the walk
+    // stays off the common path.
+    private static bool IsKeyedCollection(object model) =>
+        model is IList
+        && ClosedGenericType.Of(model.GetType(), typeof(System.Collections.ObjectModel.KeyedCollection<,>)) is not null;
 
     // Whether each collection type that is neither a list nor a non-generic IDictionary yields
     // key-value pairs, which is how a type implementing only the generic dictionary interfaces

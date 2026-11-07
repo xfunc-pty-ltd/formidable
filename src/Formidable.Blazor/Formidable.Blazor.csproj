@@ -16,6 +16,7 @@
         <Compile Include="..\Shared\FriendlyTypeName.cs" Link="Shared\FriendlyTypeName.cs" />
         <Compile Include="..\Shared\MissingFluentValidatorMessage.cs" Link="Shared\MissingFluentValidatorMessage.cs" />
         <Compile Include="..\Shared\FormidableConfigurationError.cs" Link="Shared\FormidableConfigurationError.cs" />
+        <Compile Include="..\Shared\ClosedGenericType.cs" Link="Shared\ClosedGenericType.cs" />
         <Using Include="Formidable.Shared" />
     </ItemGroup>
     <ItemGroup>
