@@ -22,6 +22,10 @@ public class SupersessionOrderTests
     public sealed class Account
     {
         public string? Other { get; set; }
+
+        public string? Name { get; set; }
+
+        public string? Third { get; set; }
     }
 
     /// <summary>A counting async rule on Other, in the submit bucket, that waits on a gate while <see cref="Hold"/> is set and honours its token.</summary>
@@ -30,11 +34,16 @@ public class SupersessionOrderTests
         private volatile bool _hold;
         private volatile bool _fails;
         private volatile bool _throwsOnCancel;
-        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private volatile Action? _onCancel;
+        private TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _runs;
+        private int _held;
 
         /// <summary>How many times the async rule has started.</summary>
         public int Runs => Volatile.Read(ref _runs);
+
+        /// <summary>How many runs have reached the gate, each with its callbacks already registered.</summary>
+        public int Held => Volatile.Read(ref _held);
 
         /// <summary>Whether a run that starts waits on the gate.</summary>
         public bool Hold
@@ -57,6 +66,13 @@ public class SupersessionOrderTests
             set => _throwsOnCancel = value;
         }
 
+        /// <summary>A callback a run that starts registers on its token, which runs when the token is cancelled.</summary>
+        public Action? OnCancel
+        {
+            get => _onCancel;
+            set => _onCancel = value;
+        }
+
         /// <summary>Lets every held run, and every later one, answer.</summary>
         public void Release()
         {
@@ -72,15 +88,23 @@ public class SupersessionOrderTests
             RuleFor(m => m.Other).MustAsync(async (_, ct) =>
             {
                 Interlocked.Increment(ref _runs);
+
+                // Registered before the wait, so each runs after the wait's own callback.
+                if (OnCancel is { } onCancel)
+                {
+                    ct.Register(onCancel);
+                }
+
                 if (ThrowsOnCancel)
                 {
-                    // Registered before the wait, so it runs after the wait's own callback.
                     ct.Register(() => throw new InvalidOperationException("The rule's cancellation callback threw."));
                 }
 
                 if (Hold)
                 {
-                    await _gate.Task.WaitAsync(ct);
+                    var gate = Volatile.Read(ref _gate).Task;
+                    Interlocked.Increment(ref _held);
+                    await gate.WaitAsync(ct);
                 }
 
                 return !Fails;
@@ -163,6 +187,27 @@ public class SupersessionOrderTests
             SynchronizationContext.SetSynchronizationContext(ambient);
         }
     }
+
+    /// <summary>Commits <paramref name="value"/> to the field <paramref name="member"/> names, with no synchronization context, as a WebAssembly host does.</summary>
+    private static void Edit(EditContext editContext, Account model, string member, string value) =>
+        WithoutContext(() =>
+        {
+            switch (member)
+            {
+                case nameof(Account.Name):
+                    model.Name = value;
+                    break;
+                case nameof(Account.Third):
+                    model.Third = value;
+                    break;
+                default:
+                    model.Other = value;
+                    break;
+            }
+
+            editContext.NotifyFieldChanged(new FieldIdentifier(model, member));
+            return true;
+        });
 
     /// <summary>Yields until <paramref name="condition"/> holds, for at most five seconds.</summary>
     /// <returns>Whether the condition holds at the end.</returns>
@@ -292,6 +337,158 @@ public class SupersessionOrderTests
         Assert.True(await UntilAsync(() => validator.Runs == 2));
         Assert.True(await UntilAsync(() => !engine.IsValidating));
         Assert.Equal("up,down", record.Shape(seen => seen.Submitting));
+    }
+
+    // A check that begins cancels the token of the check before it, and a callback a rule left on
+    // that token can start a check of its own from inside the cancel: here it edits Name, and the
+    // edit's check supersedes the beginning check before that check has recorded its fields. The
+    // beginning check then records none, so the fields the check in flight covers stay its own,
+    // and the next edit's check, which answers them in its place, lights Name.
+    // Mutation: produce and record the scope in RunPassAsync whether or not the pass is still
+    // current, and Name stays dark: the next check carries the superseded check's fields instead.
+    [Fact]
+    public async Task A_check_started_inside_a_cancel_keeps_its_fields_for_the_check_that_supersedes_it()
+    {
+        var model = new Account();
+        var editContext = new EditContext(model);
+        var validator = new HeldValidator();
+        using var engine = new FormidableEngine<Account>(
+            model, editContext, new FluentValidationModelValidator<Account>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider(), work => work());
+        var other = new FieldIdentifier(model, nameof(Account.Other));
+        var name = new FieldIdentifier(model, nameof(Account.Name));
+
+        validator.OnCancel = () => Edit(editContext, model, nameof(Account.Name), "n");
+        Edit(editContext, model, nameof(Account.Other), "x"); // its check runs the rule and answers
+        Assert.False(engine.IsValidating);
+        validator.OnCancel = null;
+        validator.Hold = true;
+
+        Edit(editContext, model, nameof(Account.Other), "y");
+        Assert.True(engine.IsValidating);
+        Assert.True(engine.GetFieldState(name).IsValidating); // the check on Name, held
+
+        Edit(editContext, model, nameof(Account.Other), "z");
+        Assert.True(engine.GetFieldState(other).IsValidating);
+        Assert.True(engine.GetFieldState(name).IsValidating);
+
+        validator.Release();
+        Assert.True(await UntilAsync(() => !engine.IsValidating));
+    }
+
+    // The same, with the beginning check a refresh. Its fields are the ones edited within its
+    // window, and producing them takes them, so a refresh superseded inside its cancel must take
+    // none: the refresh the callback's edit arms lights them all, that edit's field included.
+    // Mutation: as above, and the next refresh lights neither field: the superseded one took both.
+    [Fact]
+    public async Task A_refresh_superseded_inside_its_cancel_leaves_its_fields_to_the_next_refresh()
+    {
+        var model = new Account();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var validator = new HeldValidator();
+        using var engine = new FormidableEngine<Account>(
+            model, editContext, new FluentValidationModelValidator<Account>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions(), time, work => work());
+        var other = new FieldIdentifier(model, nameof(Account.Other));
+        var name = new FieldIdentifier(model, nameof(Account.Name));
+        var debounce = new FormidableOptions().RefreshDebounce;
+        Assert.True((await WithoutContext(() => engine.ValidateForSubmitAsync())).CanProceed);
+
+        validator.OnCancel = () => Edit(editContext, model, nameof(Account.Name), "n");
+        Edit(editContext, model, nameof(Account.Other), "x"); // its check answers; the refresh is armed
+        Assert.False(engine.IsValidating);
+        validator.OnCancel = null;
+
+        // The refresh's begin cancels that token, and the callback's edit starts the check on Name,
+        // which answers at once and arms the refresh again.
+        WithoutContext(() =>
+        {
+            time.Advance(debounce);
+            return true;
+        });
+        Assert.False(engine.IsValidating);
+
+        var lit = new List<(bool Other, bool Name)>();
+        engine.StateChanged += (_, _) =>
+        {
+            if (engine.IsValidating)
+            {
+                lit.Add((engine.GetFieldState(other).IsValidating, engine.GetFieldState(name).IsValidating));
+            }
+        };
+
+        WithoutContext(() =>
+        {
+            time.Advance(debounce);
+            return true;
+        });
+
+        Assert.True(await UntilAsync(() => !engine.IsValidating));
+        Assert.Equal([(true, true)], lit);
+    }
+
+    // A narrowed live check that cancels a re-check hands the re-check's fields to the next
+    // re-check, since it answers none of them under the submit profile. Here the re-check's
+    // callback edits Name inside that cancel, and the edit's check supersedes the narrowed check
+    // before that check records its fields. The hand-on is still made: the next re-check lights
+    // the cancelled re-check's field beside the two fields edited since.
+    // Mutation: drop the carry from the superseded branch of RunPassAsync's scope block, and the
+    // next re-check leaves Other dark.
+    [Fact]
+    public async Task A_narrowed_check_superseded_inside_its_cancel_still_hands_the_recheck_on()
+    {
+        var model = new Account();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var validator = new HeldValidator();
+        using var engine = new FormidableEngine<Account>(
+            model, editContext, new FluentValidationModelValidator<Account>(validator),
+            new ReflectionModelIntrospector(), new FormidableOptions { LiveProfile = ValidationProfile.Draft },
+            time, work => work());
+        var other = new FieldIdentifier(model, nameof(Account.Other));
+        var name = new FieldIdentifier(model, nameof(Account.Name));
+        var third = new FieldIdentifier(model, nameof(Account.Third));
+        var debounce = new FormidableOptions().RefreshDebounce;
+        Assert.True((await WithoutContext(() => engine.ValidateForSubmitAsync())).CanProceed);
+        Edit(editContext, model, nameof(Account.Other), "x"); // the narrowed check answers; the re-check is armed
+        Assert.False(engine.IsValidating);
+
+        validator.Hold = true;
+        validator.OnCancel = () => Edit(editContext, model, nameof(Account.Name), "n");
+        WithoutContext(() =>
+        {
+            time.Advance(debounce);
+            return true;
+        });
+        Assert.True(await UntilAsync(() => validator.Held == 1)); // the re-check, held
+        Assert.True(engine.GetFieldState(other).IsValidating);
+        validator.OnCancel = null;
+        validator.Hold = false;
+
+        Edit(editContext, model, nameof(Account.Third), "t");
+        Assert.True(await UntilAsync(() => !engine.IsValidating));
+
+        var lit = new List<(bool Other, bool Name, bool Third)>();
+        engine.StateChanged += (_, _) =>
+        {
+            if (engine.IsValidating)
+            {
+                lit.Add((
+                    engine.GetFieldState(other).IsValidating,
+                    engine.GetFieldState(name).IsValidating,
+                    engine.GetFieldState(third).IsValidating));
+            }
+        };
+
+        WithoutContext(() =>
+        {
+            time.Advance(debounce);
+            return true;
+        });
+
+        Assert.True(await UntilAsync(() => !engine.IsValidating));
+        Assert.Equal([(true, true, true)], lit);
     }
 
     // A call after the engine's disposal throws, and no check runs: the message store the disposal

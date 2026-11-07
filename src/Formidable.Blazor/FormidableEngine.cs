@@ -486,11 +486,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private PassScope? _currentPass;
 
     // The pending scope of _currentPass, recorded beside it as the pass begins and cleared with
-    // it. _validatingScope publishes the same set, but on the dispatcher. A pass that begins reads
-    // this one at once, to know which fields the check it cancels was answering: a submit or a
-    // load records them (RecordDisplaced), a live check or re-check that answers them in its place
-    // takes them over, and a narrowed live check that cancels a re-check hands them to
-    // HoldForNextRefresh (CarryCancelledFields).
+    // it. A pass that a check started inside its own begin has already superseded records none
+    // (see RunPassAsync). _validatingScope publishes the same set, but on the dispatcher. A pass
+    // that begins reads this one at once, to know which fields the check it cancels was answering:
+    // a submit or a load records them (RecordDisplaced), a live check or re-check that answers
+    // them in its place takes them over, and a narrowed live check that cancels a re-check hands
+    // them to HoldForNextRefresh (CarryCancelledFields).
     private HashSet<FieldIdentifier>? _currentPassScope;
 
     // What the submit or load in flight displaced: the re-check or live check it cancelled as it
@@ -2288,7 +2289,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="kind">The pass kind, which decides the fault policy and whether stored verdicts are served; a submit executes its whole selection.</param>
     /// <param name="profile">The profile the model is validated under.</param>
     /// <param name="external">The caller's token; only a submit and a load carry one, so a cancellation with none requested means supersession.</param>
-    /// <param name="beginScope">Produces the pending scope once the pass has begun; for a refresh, producing it clears the refresh's own accumulator, so when it runs matters.</param>
+    /// <param name="beginScope">Produces the pending scope once the pass has begun; for a refresh, producing it clears the refresh's own accumulator, so when it runs matters. A pass that a check started inside its own begin has superseded never calls it.</param>
     /// <param name="applyVerdict">Writes the verdict into engine state, on the dispatcher, in the same dispatch as the store rebuild that publishes it; it receives the report and the edit stamp read as the answering check began.</param>
     /// <param name="faulted">Told what a failed rule threw, once the fault is reported, and whether the fault message was filed for it, which it is only while the pass is still current.</param>
     /// <returns>The report, or <see langword="null"/> when the validation was cancelled by supersession or faulted; a pass superseded at its verdict dispatch returns the report it never applied, as does a submit whose last check passed once its restarts were spent but an edit outdated.</returns>
@@ -2356,15 +2357,34 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             var generation = _verdictStore.Generation;
             var departures = _departures;
 
-            var scope = beginScope();
-            if (superseded is { } cancelledPass
-                && supersededFields is { Count: > 0 }
-                && CarryCancelledFields(cancelledPass.Kind, supersededFields, kind, profile) is { } carried)
+            // A callback on the cancelled token can start a check that supersedes this pass inside
+            // the cancel and records its own scope: with no LiveDebounce, a callback that edits a
+            // field starts the edit's live check, which does so unless this pass is a submit or a
+            // load. This pass then produces no scope. Writing one would replace the newer check's,
+            // and a refresh's would take the fields edited within its window, which the next
+            // refresh lights instead. It ends as any superseded pass does.
+            HashSet<FieldIdentifier>? scope = null;
+            if (pass.Version == _version)
             {
-                scope?.UnionWith(carried);
+                scope = beginScope();
+                if (superseded is { } cancelledPass
+                    && supersededFields is { Count: > 0 }
+                    && CarryCancelledFields(cancelledPass.Kind, supersededFields, kind, profile) is { } carried)
+                {
+                    scope?.UnionWith(carried);
+                }
+
+                _currentPassScope = scope;
+            }
+            else if (superseded is { } handedOnFrom && supersededFields is { Count: > 0 })
+            {
+                // One effect of the carry stays this pass's: a narrowed live check hands the
+                // fields of a re-check it cancelled to the next re-check (HoldForNextRefresh). The
+                // check that superseded it cannot do that in its place, because it read those
+                // fields, still on record, as this pass's own and judged them by this pass's kind.
+                _ = CarryCancelledFields(handedOnFrom.Kind, supersededFields, kind, profile);
             }
 
-            _currentPassScope = scope;
             await BeginValidatingAsync(pass, scope).ConfigureAwait(false);
 
             while (true)

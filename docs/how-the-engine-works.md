@@ -569,6 +569,16 @@ its version still being the engine's own. If the cancel throws (a callback a rul
 its token threw), the newer pass ends without landing. A submit's or a load's caller gets the
 throw, and a pass the engine started itself hands it to the form's boundary.
 
+A callback on that token can also start a pass of its own. With no `LiveDebounce`, one that edits
+a field starts the edit's live pass, which supersedes the newer pass inside the cancel unless the
+newer pass is a submit or a load. A pass superseded this way produces no pending scope, so the
+scope on record stays the nested pass's.
+
+A refresh superseded this way takes none of the fields edited within its window, and the next
+refresh lights them. Once `HasSubmitted` is true, a narrowed live pass superseded this way still
+hands a cancelled refresh's fields to the next refresh. The nested pass cannot do it in its place,
+because it read those fields as the narrowed pass's own.
+
 The engine calls this supersession, and the newer pass supersedes the older. On screen it is the
 reason you only ever see the answer for what you last typed ([Async validation](async-validation.md)
 has the reader's view). Deferral is the other relationship, a pass that stands down rather than
