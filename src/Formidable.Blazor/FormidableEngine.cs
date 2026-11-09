@@ -4570,6 +4570,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         ArgumentNullException.ThrowIfNull(issues);
 
+        // The reply is read once and its paths resolved in one call, so the paths of a reply naming
+        // every row of a collection read only by walking it share one walk of it, unless its member
+        // builds it afresh on each read. Both happen before anything is written, so a reply that
+        // throws as it is read, or a path the introspector throws on, leaves the engine as it was.
+        ValidationIssue[] reply = [.. issues];
+        var replyFields = ResolveIssues(reply);
+
         HasSubmitted = true;
 
         // A verdict has arrived, so the caveat that the last one was incomplete has nothing left
@@ -4600,10 +4607,6 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         var clientStale = _submitAnswerEditStamp != _editStamp;
         var landed = false;
 
-        // The reply is read once and its paths resolved in one call, so a reply naming every row
-        // of a collection read only by walking it walks that collection once.
-        ValidationIssue[] reply = [.. issues];
-        var replyFields = ResolveIssues(reply);
         for (var at = 0; at < reply.Length; at++)
         {
             var issue = reply[at];

@@ -1916,19 +1916,23 @@ server's errors and one its advisories, apart from the live verdicts and the sub
 client answer ([Sources and views](#sources-and-views)). `ApplyServerIssues` writes it
 synchronously on the calling thread.
 
-It sets `HasSubmitted` first, which is one of the two conditions under which a field change arms
+It first reads the payload whole and resolves every issue to a field through the introspector
+([the walk](#the-walk)), before it writes anything, so a payload that throws as it is read, or a
+path the introspector throws on, leaves every source as it was.
+
+It then sets `HasSubmitted`, which is one of the two conditions under which a field change arms
 the refresh timer ([the pass kinds](#the-pass-kinds)). It clears the fault issue
 unconditionally, one of the two places that issue is cleared (a pass landing is the other). It then
-clears both dictionaries before it reads the payload, so a replace is a wholesale swap of that one
-source and the client's own verdict sources are untouched.
+clears both dictionaries, so a replace is a wholesale swap of that one source and the client's own
+verdict sources are untouched.
 
 Beside the swap it records the version, the edit stamp and the departure count, which decide
 which later landing replaces it ([what replaces the server's answer](#what-replaces-the-servers-answer)).
 
-Each issue is resolved to a field through the introspector ([the walk](#the-walk)) and, where it
-lands, added to the dictionary for its severity. Within one payload a second copy of a sentence for
-one field at the same severity folds into the first (`SameMessageAndSeverity`, the same test the
-views apply when they fold a server copy into a client one).
+Each issue, on the field it resolved to, is then added where it lands to the dictionary for its
+severity. Within one payload a second copy of a sentence for one field at the same severity folds
+into the first (`SameMessageAndSeverity`, the same test the views apply when they fold a server
+copy into a client one).
 
 The field of every landed issue is unioned into the matching reveal ledger, error sites or advisory
 sites ([the reveal ledgers](#the-reveal-ledgers)), which is what makes an apply a disclosure event.
