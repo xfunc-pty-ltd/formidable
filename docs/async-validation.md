@@ -246,8 +246,7 @@ Why: [how the engine works: what starts each check](how-the-engine-works.md#the-
 
 Not on a validator the library can take rule by rule, running its rules separately so that one
 check can reuse what another found for the same values. FluentValidation's `AbstractValidator` is
-one, unless you set `ClassLevelCascadeMode.Stop`, override `PreValidate` or `ValidateAsync`, or
-chain `DependentRules` onto a rule of its own.
+one, unless you set `ClassLevelCascadeMode.Stop` or override `PreValidate` or `ValidateAsync`.
 
 Submit, then edit a field, and no rule runs twice. One edit runs a rule declared once exactly once,
 however many of the form's profiles select it. Whichever of the live check and the whole-form
@@ -266,13 +265,16 @@ visible: submit, then type, and one "checking" cycle runs, not two. The exceptio
   rule sits in. The same holds when one of its rules sits in a ruleset while the attaching rule
   sits in none. Rulesets named on the `SetValidator` call itself keep the child to one run. Plain
   rules, ruleset rules and `ChildRules` run once.
+- When the live and submit profiles differ, a rule of the validator's own that carries
+  `DependentRules` may run again too, with the rules inside them. That needs one of those rules (at
+  any depth, the rules of a child validator or `Include()` there included) to lack a ruleset the
+  carrying rule sits in, or to sit in a ruleset while the carrying rule sits in none.
 - A rule written with `RuleForEach` is checked for every row at once, so an expensive per-row
   check costs the whole collection on each edit that reaches it.
-- A validator with a class-level cascade stop, a `PreValidate` or `ValidateAsync` override,
-  `DependentRules` on a rule of its own, or one that is not FluentValidation's `AbstractValidator`,
-  has every rule re-run on every check, so after a submit a rule can run twice for one edit. A
-  per-rule `.Cascade(CascadeMode.Stop)` changes nothing, and neither does `DependentRules` inside a
-  child validator or an `Include()`.
+- A validator with a class-level cascade stop, a `PreValidate` or `ValidateAsync` override, or one
+  that is not FluentValidation's `AbstractValidator`, has every rule re-run on every check, so
+  after a submit a rule can run twice for one edit. A per-rule `.Cascade(CascadeMode.Stop)` changes
+  nothing, and neither does `DependentRules`.
 - Pressing Submit right after a live check asks the async rule again. So can
   [`TrackFormValidity`](#what-does-trackformvalidity-cost-with-async-rules) where `LiveProfile` is
   narrowed, and after a load you edited during where `RefreshDebounce` never passes
@@ -316,9 +318,10 @@ The whole-form re-check shows "checking" on a field whose change is still waitin
 field you edited since.
 
 Pressing Submit shows "checking" on each field whose submit rules the library can read, because all
-of those are being checked at once. A field whose only rules the library cannot read ahead of a run
-(such as one inside `DependentRules`, or in a child validator built from the model) shows none.
-Where your validator cannot report its rules to the library, a submit shows it on every field.
+of those are being checked at once. The library reads a rule inside `DependentRules` like any other,
+so its field shows "checking" too. A field whose only rules the library cannot read ahead of a run
+(such as one in a child validator built from the model) shows none. Where your validator cannot
+report its rules to the library, a submit shows it on every field.
 
 While a submit runs, the fields showing "checking" change with the page. A row you add shows
 "checking" on each field whose submit rules the library can read, until the submit's answer lands.
@@ -368,8 +371,8 @@ or left it while the load ran. The form seeing its fields for the first time cou
 appearing. So when your page starts a load from its own first `OnAfterRenderAsync`, the check after
 the load runs all of its rules again.
 
-Where `LiveProfile` differs from the submit profile, a rule inside an `Include()`, or in some child
-validators, may run again too, as after an edit
+Where `LiveProfile` differs from the submit profile, some rules may run again too, as after an
+edit: one inside an `Include()`, in some child validators, or carrying some `DependentRules`
 ([the exceptions](#does-the-library-ever-run-my-rule-twice-for-one-edit)).
 
 A field you change while the load runs shows no "checking" until the load ends, because the check of
@@ -397,17 +400,21 @@ whole-form check by the submit profile, which keeps `IsFormValid` current. With 
 check answers the rest, so tracking can put green on a field a narrowed live check could not.
 
 Two more setups keep a passing check short of green. A validator the engine cannot take rule by
-rule (an `AbstractValidator` that sets `ClassLevelCascadeMode.Stop`, overrides `PreValidate` or
-`ValidateAsync` or chains `DependentRules` onto a rule of its own, or a validator of your own)
-earns green only from a check that answers the whole model: a submit, the whole-form re-check or a
-load of values. With `TrackFormValidity` on, the validity check earns it too, and on the default
-profiles so does the live check each edit starts.
+rule (an `AbstractValidator` that sets `ClassLevelCascadeMode.Stop` or overrides `PreValidate` or
+`ValidateAsync`, or a validator of your own) earns green only from a check that answers the whole
+model: a submit, the whole-form re-check or a load of values. With `TrackFormValidity` on, the
+validity check earns it too, and on the default profiles so does the live check each edit starts.
 
 And under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` with tracking off, an edit before the
 first submit or server reply starts no check. Green after it comes from a submit, the whole-form
 re-check or a load of values.
 [CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field) has the whole
 condition.
+
+An edit takes green off the field it changes until a check that answers the submit rules lands. On
+a validator the engine can take rule by rule, one using `DependentRules` included, every field the
+edit did not touch keeps its green while that check is on its way
+([why green survives an edit elsewhere](css-and-accessibility.md#why-does-green-survive-a-row-arriving-or-an-edit-elsewhere)).
 
 Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit-coverage-vouch).
 

@@ -10,7 +10,8 @@ namespace Formidable;
 
 // Answers what a profile requires of a field, and which fields its rules mention at
 // all, without a model to run the rules against. A top-level rule's own components
-// answer directly; a rule reaching a child validator hands the walk to that
+// answer directly, as do those of the rules inside its DependentRules, read with it under
+// the same selector; a rule reaching a child validator hands the walk to that
 // validator's own rules, under the selector FluentValidation itself would hand the
 // child at that boundary, so the walk agrees with a real run about which child rules
 // a profile reaches.
@@ -26,10 +27,9 @@ public sealed partial class FluentValidationModelValidator<TModel>
 
     /// <summary>Whether the rules can be read: <see langword="true"/> exactly when the wrapped validator is an <see cref="AbstractValidator{T}"/> and the loaded FluentValidation assembly carries the members the reading needs.</summary>
     /// <remarks>
-    /// Neither cascade mode, a <c>PreValidate</c> or <c>ValidateAsync</c> override, nor a rule's
-    /// <c>DependentRules</c> matters, so a validator <see cref="CanValidateByRule"/> refuses for
-    /// any of them can still be read, its dependent rules aside. A hand-rolled
-    /// <see cref="IValidator{T}"/> reports <see langword="false"/>.
+    /// Neither cascade mode nor a <c>PreValidate</c> or <c>ValidateAsync</c> override matters, so
+    /// a validator <see cref="CanValidateByRule"/> refuses for any of them can still be read. A
+    /// hand-rolled <see cref="IValidator{T}"/> reports <see langword="false"/>.
     /// The assembly check runs once per process and writes one Trace line when it fails, which
     /// a FluentValidation resolved above the range this package declares can cause; both readers
     /// then report the empty answer.
@@ -43,6 +43,14 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <returns>The demand; <see cref="FieldRequirement.NotRequired"/> when <see cref="CanInspectRules"/> is <see langword="false"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="fieldPath"/> or <paramref name="profile"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
+    /// <remarks>
+    /// A rule inside <c>DependentRules</c> runs only when the rule carrying it runs and adds no
+    /// failure, warnings included. So its demand is conditional unless every component of that
+    /// rule fails as an error and none is a child validator. It is conditional too under a
+    /// <c>RuleForEach</c> rule whose every component carries a condition, because that rule does not
+    /// run while those conditions hold every component back. A <c>Where</c> row filter skips rows,
+    /// never those rules.
+    /// </remarks>
     public FieldRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile)
     {
         ArgumentNullException.ThrowIfNull(fieldPath);
@@ -86,7 +94,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
     [GeneratedRegex(@"\[.*?\]")]
     private static partial Regex CollectionIndexNormalizer();
 
-    /// <summary>Returns every field path the rules <paramref name="profile"/> selects mention, as declared templates with each collection index left open (<c>Attendees[].Name</c>).</summary>
+    /// <summary>Returns every field path the rules <paramref name="profile"/> selects mention, the rules inside their <c>DependentRules</c> included, as declared templates with each collection index left open (<c>Attendees[].Name</c>).</summary>
     /// <param name="profile">The rule selection that decides which rules are read.</param>
     /// <returns>The declared paths, compared ordinally; empty when <see cref="CanInspectRules"/> is <see langword="false"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="profile"/> is <see langword="null"/>.</exception>
@@ -95,9 +103,8 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// A child validator written for a base type (an <c>AnimalValidator</c> on a <c>Dog</c>) is
     /// read. A rule on each row, written with <c>RuleForEach</c> or <c>ForEach</c>, files under
     /// the indexed path (<c>Tags[]</c>, or <c>Items[].Sku</c> for a child validator on each row),
-    /// not the collection's own. Not read: a child a lambda cannot build without a model, a
-    /// validator met again inside itself (the same instance, or one a lambda builds of its type),
-    /// and <c>DependentRules</c>.
+    /// not the collection's own. Not read: a child a lambda cannot build without a model, and a
+    /// validator met again inside itself (the same instance, or one a lambda builds of its type).
     /// </remarks>
     public IReadOnlySet<string> GetDeclaredFieldPaths(ValidationProfile profile)
     {
@@ -203,96 +210,181 @@ public sealed partial class FluentValidationModelValidator<TModel>
 
         foreach (var rule in rules)
         {
-            if (!selector.CanExecute(rule, string.Empty, selectionContext))
-            {
-                continue;
-            }
-
-            // Read once per rule: both the row-filter check below and the paths the rule files
-            // under ask the identical question of the identical rule, and neither needs it more
-            // than once.
-            var collectionRuleType = CollectionRuleTypeOf(rule, modelType);
-            var (ownPath, childPrefix) = RulePaths(prefix, rule.PropertyName, collectionRuleType is not null);
-
-            // FluentValidation records a condition in one of two places depending on how it was
-            // written: a When block wrapping the rule declaration marks the RULE, while a When
-            // chained after a component marks the COMPONENT — including the
-            // ApplyConditionTo.CurrentValidator form, which marks that one component alone and
-            // leaves its siblings unconditional. Both places carry a synchronous and an
-            // asynchronous flag, so all four are consulted. A collection rule can carry one
-            // more, judged per row rather than per model: RuleForEach(...).Where and its
-            // asynchronous twin, stored as the rule's Filter/AsyncFilter rather than as
-            // condition flags. Which rows a filter admits is as unanswerable without a model
-            // as any When, so a filtered rule is conditional the same way.
-            var ruleConditional = conditional
-                || rule.HasCondition
-                || rule.HasAsyncCondition
-                || HasRowFilter(rule, collectionRuleType);
-
-            foreach (var component in rule.Components)
-            {
-                var componentConditional =
-                    ruleConditional || component.HasCondition || component.HasAsyncCondition;
-
-                if (component.Validator is IChildValidatorAdaptor)
-                {
-                    var child = ResolveChildValidator(component, modelType, rule.TypeToValidate);
-                    if (child.Validator is null
-                        || ChildValidatorReader.RepeatsPath(walking, child.Validator, component, modelType, rule.TypeToValidate))
-                    {
-                        continue;
-                    }
-
-                    // FluentValidation's own child dispatch (ChildValidatorAdaptor.GetSelector):
-                    // rulesets on the adaptor build a replacing selector — the one in force is
-                    // not intersected with, and never sees the child's rules — while an adaptor
-                    // carrying none inherits it unchanged. Constructed directly because
-                    // GetSelector constructs directly, without consulting the global selector
-                    // factory; routing this through the factory would diverge from what a run
-                    // does at this boundary.
-                    var childSelector = child.RuleSets is { Length: > 0 }
-                        ? new RulesetValidatorSelector(child.RuleSets)
-                        : selector;
-
-                    WalkDeclaredRules(
-                        child.Validator, ValidatedModelTypeOf(child.Validator, rule.TypeToValidate),
-                        childPrefix, componentConditional, childSelector, selectionContext, declared,
-                        walking);
-                    continue;
-                }
-
-                if (ownPath is null)
-                {
-                    continue; // a model-level component names no field
-                }
-
-                // A presence component demands a value only when its failure blocks a submit, and
-                // only an error blocks one. So the severity grades it before the condition does: a
-                // warning or info never demands anything, conditional or not; a severity decided
-                // from the model is as undecidable here as a When, so it is conditional; an error
-                // is required, or conditional under a condition.
-                var demand = !IsPresenceComponent(component)
-                    ? FieldRequirement.NotRequired
-                    : ReadSeverity(component) switch
-                    {
-                        SeverityReading.NeverBlocks => FieldRequirement.NotRequired,
-                        SeverityReading.NeedsModel => FieldRequirement.ConditionallyRequired,
-                        _ => componentConditional
-                            ? FieldRequirement.ConditionallyRequired
-                            : FieldRequirement.Required,
-                    };
-
-                // The strongest demand any component makes wins, which is what puts an
-                // unconditional presence rule ahead of a conditional one on the same field, and an
-                // error presence rule ahead of a warning one, and keeps a field whose rules demand
-                // no value in the map at all.
-                declared[ownPath] = declared.TryGetValue(ownPath, out var existing) && existing > demand
-                    ? existing
-                    : demand;
-            }
+            WalkDeclaredRule(rule, modelType, prefix, conditional, selector, selectionContext, declared, walking);
         }
 
         walking.Remove(validator);
+    }
+
+    /// <summary>Files each selected leaf component of one rule, and of the rules inside its <c>DependentRules</c>, under the path its failures carry.</summary>
+    /// <param name="rule">The rule to read.</param>
+    /// <param name="modelType">The type the rule's validator judges.</param>
+    /// <param name="prefix">The path travelled so far, as <see cref="WalkDeclaredRules"/> takes it.</param>
+    /// <param name="conditional">Whether the walk reached this rule only through a condition.</param>
+    /// <param name="selector">The selector rules are admitted by at this level.</param>
+    /// <param name="selectionContext">The model-less context selection questions are asked against.</param>
+    /// <param name="declared">The map being filled.</param>
+    /// <param name="walking">The validators on the current path.</param>
+    /// <remarks>
+    /// A dependent rule is asked about by the selector that admitted its carrying rule and files
+    /// under that rule's prefix, as a run does. It runs only when the carrying rule
+    /// runs and adds no failure, and a condition on that rule, or on every component of a rule on
+    /// each row, can stop it running. So its demand is conditional unless no condition can stop
+    /// the carrying rule and every failure of that rule blocks a submit.
+    /// </remarks>
+    private void WalkDeclaredRule(
+        IValidationRule rule,
+        Type modelType,
+        string prefix,
+        bool conditional,
+        IValidatorSelector selector,
+        IValidationContext selectionContext,
+        Dictionary<string, FieldRequirement> declared,
+        HashSet<object> walking)
+    {
+        if (!selector.CanExecute(rule, string.Empty, selectionContext))
+        {
+            return;
+        }
+
+        // Read once per rule: both the row-filter check below and the paths the rule files
+        // under ask the identical question of the identical rule, and neither needs it more
+        // than once.
+        var collectionRuleType = CollectionRuleTypeOf(rule, modelType);
+        var (ownPath, childPrefix) = RulePaths(prefix, rule.PropertyName, collectionRuleType is not null);
+
+        // FluentValidation records a condition in one of two places depending on how it was
+        // written: a When block wrapping the rule declaration marks the RULE, while a When
+        // chained after a component marks the COMPONENT — including the
+        // ApplyConditionTo.CurrentValidator form, which marks that one component alone and
+        // leaves its siblings unconditional. Both places carry a synchronous and an
+        // asynchronous flag, so all four are consulted. A collection rule can carry one
+        // more, judged per row rather than per model: RuleForEach(...).Where and its
+        // asynchronous twin, stored as the rule's Filter/AsyncFilter rather than as
+        // condition flags. Which rows a filter admits is as unanswerable without a model
+        // as any When, so a filtered rule is conditional the same way.
+        var ruleConditional = conditional
+            || rule.HasCondition
+            || rule.HasAsyncCondition
+            || HasRowFilter(rule, collectionRuleType);
+
+        foreach (var component in rule.Components)
+        {
+            var componentConditional =
+                ruleConditional || component.HasCondition || component.HasAsyncCondition;
+
+            if (component.Validator is IChildValidatorAdaptor)
+            {
+                var child = ResolveChildValidator(component, modelType, rule.TypeToValidate);
+                if (child.Validator is null
+                    || ChildValidatorReader.RepeatsPath(walking, child.Validator, component, modelType, rule.TypeToValidate))
+                {
+                    continue;
+                }
+
+                // FluentValidation's own child dispatch (ChildValidatorAdaptor.GetSelector):
+                // rulesets on the adaptor build a replacing selector — the one in force is
+                // not intersected with, and never sees the child's rules — while an adaptor
+                // carrying none inherits it unchanged. Constructed directly because
+                // GetSelector constructs directly, without consulting the global selector
+                // factory; routing this through the factory would diverge from what a run
+                // does at this boundary.
+                var childSelector = child.RuleSets is { Length: > 0 }
+                    ? new RulesetValidatorSelector(child.RuleSets)
+                    : selector;
+
+                WalkDeclaredRules(
+                    child.Validator, ValidatedModelTypeOf(child.Validator, rule.TypeToValidate),
+                    childPrefix, componentConditional, childSelector, selectionContext, declared,
+                    walking);
+                continue;
+            }
+
+            if (ownPath is null)
+            {
+                continue; // a model-level component names no field
+            }
+
+            // A presence component demands a value only when its failure blocks a submit, and
+            // only an error blocks one. So the severity grades it before the condition does: a
+            // warning or info never demands anything, conditional or not; a severity decided
+            // from the model is as undecidable here as a When, so it is conditional; an error
+            // is required, or conditional under a condition.
+            var demand = !IsPresenceComponent(component)
+                ? FieldRequirement.NotRequired
+                : ReadSeverity(component) switch
+                {
+                    SeverityReading.NeverBlocks => FieldRequirement.NotRequired,
+                    SeverityReading.NeedsModel => FieldRequirement.ConditionallyRequired,
+                    _ => componentConditional
+                        ? FieldRequirement.ConditionallyRequired
+                        : FieldRequirement.Required,
+                };
+
+            // The strongest demand any component makes wins, which is what puts an
+            // unconditional presence rule ahead of a conditional one on the same field, and an
+            // error presence rule ahead of a warning one, and keeps a field whose rules demand
+            // no value in the map at all.
+            declared[ownPath] = declared.TryGetValue(ownPath, out var existing) && existing > demand
+                ? existing
+                : demand;
+        }
+
+        if (rule.DependentRules is { } dependents)
+        {
+            // FluentValidation runs a rule on each row only while some check of it is switched
+            // on, and returns before the rule's dependents when none is, so a rule on each row
+            // whose every check carries a condition can skip them without failing. A row filter
+            // only skips rows inside that rule, and the dependents run after the rows whatever it
+            // skipped, so it leaves them as unconditional as the rule itself.
+            var dependentsConditional = conditional
+                || rule.HasCondition
+                || rule.HasAsyncCondition
+                || !EveryFailureBlocks(rule)
+                || (collectionRuleType is not null && EveryComponentConditional(rule));
+            foreach (var dependent in dependents)
+            {
+                WalkDeclaredRule(
+                    dependent, modelType, prefix, dependentsConditional, selector, selectionContext, declared,
+                    walking);
+            }
+        }
+    }
+
+    /// <summary>Whether every failure <paramref name="rule"/> can add blocks a submit, read without a model.</summary>
+    /// <param name="rule">The rule carrying dependent rules.</param>
+    /// <returns><see langword="false"/> when a component can fail as a warning or info, or with a severity read from the model, or is a child validator, whose failures this reading does not grade.</returns>
+    // FluentValidation skips a rule's dependents after any failure of the rule, warnings
+    // included, so a carrying rule that can fail without blocking lets a submit pass without its
+    // dependents having run. A severity that cannot be read answers Blocks, as ReadSeverity's
+    // other callers take it.
+    private static bool EveryFailureBlocks(IValidationRule rule)
+    {
+        foreach (var component in rule.Components)
+        {
+            if (component.Validator is IChildValidatorAdaptor || ReadSeverity(component) != SeverityReading.Blocks)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether every component of <paramref name="rule"/> carries a condition, synchronous or asynchronous.</summary>
+    /// <param name="rule">The rule on each row carrying dependent rules.</param>
+    /// <returns><see langword="true"/> when no component runs unconditionally, a rule with no component included.</returns>
+    private static bool EveryComponentConditional(IValidationRule rule)
+    {
+        foreach (var component in rule.Components)
+        {
+            if (!component.HasCondition && !component.HasAsyncCondition)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>The path a rule's own components file under, and the prefix a child validator it carries is read under.</summary>

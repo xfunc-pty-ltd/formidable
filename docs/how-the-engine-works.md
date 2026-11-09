@@ -325,12 +325,13 @@ that the model now holds values nothing notified for.
 
 A profile-scoped verdict is additionally fresh only for the profile instance it ran under. A
 verdict is profile-scoped when its execution consulted a child-scope decision the profile itself
-filters: an `Include()`'s internals, or a child validator's rules whose ruleset tags the parent
-rule's own memberships do not guarantee.
+filters: an `Include()`'s internals, a child validator's rules whose ruleset tags the parent rule's
+own memberships do not guarantee, or a rule inside `DependentRules` whose ruleset membership does
+not follow from the rule carrying it.
 
-An untagged child scope under an untagged rule, and a `ChildRules` child (its tags are its parent
-declaration's, propagated), never scope a verdict unless an `Include()` owns the consultation or,
-before any owner is known, sits in the set.
+An untagged child scope or dependent rule under an untagged rule, and a `ChildRules` child (its
+tags are its parent declaration's, propagated), never scope a verdict unless an `Include()` owns
+the consultation or, before any owner is known, sits in the set.
 
 A `LiveProfile` swapped at runtime is read at the next pass's begin; the rules both profiles
 select keep their verdicts, a profile-scoped verdict re-runs, and a rule the store has never
@@ -808,9 +809,9 @@ read.
 
 `FluentValidationModelValidator<TModel>` (what `AddFormidable()` registers) reports the
 capability true exactly when the wrapped validator is an `AbstractValidator<TModel>` whose
-`ClassLevelCascadeMode` is `CascadeMode.Continue`, whose class overrides neither `PreValidate` nor
-`ValidateAsync`, and none of whose own rules carries `DependentRules`. A hand-rolled
-`IValidator<T>` cannot enumerate its rules, so it turns the capability off.
+`ClassLevelCascadeMode` is `CascadeMode.Continue` and whose class overrides neither `PreValidate`
+nor `ValidateAsync`. A hand-rolled `IValidator<T>` cannot enumerate its rules, so it turns the
+capability off.
 
 A class-level cascade stop lets a failing rule suppress later rules within one whole-profile run,
 and executing part of a profile can reproduce neither the stop nor its verdict, so the adapter
@@ -823,17 +824,45 @@ forwards to another validator) would also run once per class, and it turns the c
 the same way. The rule-level path is async alone, so an override of the synchronous `Validate`
 never runs on it and leaves the capability on.
 
-A rule declared inside `DependentRules` is not one of the validator's own rules, and
-FluentValidation asks the selector about it in the context of the rule carrying it. Outside a child
-context, the set's selector admits only the rules it was handed, so a set run apart would skip the
-dependent rule. An own rule that carries one therefore turns the capability off, and the whole
-profile runs the dependent rule as FluentValidation does.
+A rule declared inside `DependentRules` is not one of the validator's own rules. FluentValidation
+asks the selector about it outside a child context, from inside the rule carrying it. So the set's
+selector lists the dependent rules of the rules it holds, at any depth, and hands each to the
+profile's own ruleset selector, as a whole-profile run decides it.
 
-A dependent rule inside a child validator, a `ChildRules` block or an `Include()` is asked about in
-a child context, which the rule-level path answers as a whole-profile run does, so it runs on that
-path and leaves the capability on. The adapter reads the validator's own rules once and keeps the
-answer. A `DependentRules` call made after that read leaves the capability on, and the rule-level
-path skips the rules it declares.
+A dependent rule runs only when its carrying rule runs and adds no failure (a warning counts). A
+condition on the carrying rule itself (a `When` block around it) can stop that rule running, and
+so can a condition on every check of a `RuleForEach` rule. Conditions on a plain rule's checks
+cannot, even on every one: the rule still runs, and its dependents with it.
+
+A row filter on a `RuleForEach` rule (`Where`, `WhereAsync`) cannot stop the dependents either: it
+skips rows, and FluentValidation runs the dependents after the rows, whatever the filter skipped.
+The rule's own per-row checks stay conditional.
+
+A dependent rule therefore runs in its carrying rule's call, and its failures file in that rule's
+set verdict. The edit stamp strands that verdict on any edit, whichever field the edit names, so
+the next check whose profile selects the carrying rule runs it again, with each dependent rule that
+profile admits.
+
+Where the edit starts a check of its own, that check runs the carrying rule again, unless a narrowed
+`LiveProfile` leaves out that rule or a dependent rule. Under a `LiveDebounce` of
+`Timeout.InfiniteTimeSpan` an edit starts none.
+
+What the edit's check leaves out, or every such rule when the edit starts none, waits for the next
+check by the submit profile. That is a refresh, the validity check while `TrackFormValidity` is on,
+a load, or the submit itself. Three things arm the refresh: an edit once the form has submitted or
+while a submit runs, a move in the rendered field set, and a server apply that held answers back.
+
+A dependent rule whose ruleset membership does not follow from the validator's own rule above it
+(it lacks a ruleset that rule sits in, or sits in one while that rule sits in none) marks the call
+profile-scoped, as a child validator's rule does. Where `LiveProfile` differs from the submit
+profile, such a set then runs once under each. `GroupBySelectionClass` gives a rule carrying
+`DependentRules` a group of its own, sparing its siblings the mark.
+
+The adapter reads the dependent rules at each call, so a `DependentRules` call made after the form
+first listed the rules runs too. A dependent rule inside a child validator, a `ChildRules` block or
+an `Include()` is asked about in a child context and answered as any child rule is. So is a rule
+of a child validator or an `Include()` attached inside `DependentRules`: its membership is measured
+against the validator's own rule above it.
 
 Whichever path runs, the engine takes its `IModelValidator<TModel>` once, when it is built (the
 root's `Validator` parameter, else the container), and keeps that instance until the root rebuilds
@@ -859,9 +888,9 @@ that cannot be inspected discloses a non-empty loaded value its rules fail (the 
 field) and confirms none of the good ones.
 
 **Selection classes.** The FluentValidation adapter's class is a rule's ruleset membership: two
-rules with the same memberships are admitted together by every profile. An `Include()` rule and
-any rule reaching a child validator take a group of their own, so the profile-scoped verdict such
-a rule can record never marks a sibling.
+rules with the same memberships are admitted together by every profile. An `Include()` rule, any
+rule reaching a child validator and any rule carrying `DependentRules` take a group of their own,
+so the profile-scoped verdict such a rule can record never marks a sibling.
 
 ## Disclosure internals
 

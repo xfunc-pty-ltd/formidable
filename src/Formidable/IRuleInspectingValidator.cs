@@ -33,12 +33,12 @@ public interface IRuleInspectingValidator<in TModel>
     /// <returns>The demand; <see cref="FieldRequirement.NotRequired"/> when <see cref="CanInspectRules"/> is <see langword="false"/>.</returns>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, or leaves out the default rules and selects none of its rules, where the validator refuses such a profile (<see cref="FluentValidationModelValidator{TModel}"/> refuses the first over a <see cref="ProfiledValidator{T}"/>, and the second over any other <see cref="FluentValidation.AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>).</exception>
     /// <remarks>
-    /// Only a <c>NotEmpty()</c> or <c>NotNull()</c> failing as an error demands a value; a warning
-    /// or info one, or a predicate such as <c>Must(...)</c>, reads <see cref="FieldRequirement.NotRequired"/>.
-    /// A demand reached only through a condition (<c>When</c>, <c>Unless</c>, async forms, on the
-    /// rule, the component or a parent rule, or a per-row <c>Where</c>), or whose severity the
-    /// model decides, is conditional; an unconditional demand wins. A <c>RuleForEach</c> or
-    /// <c>ForEach</c> rule on <c>Tags</c> files under <c>Tags[]</c>, not <c>Tags</c>.
+    /// Only <c>NotEmpty()</c> or <c>NotNull()</c> failing as an error demands a value; a warning,
+    /// an info or a predicate such as <c>Must(...)</c> reads <see cref="FieldRequirement.NotRequired"/>.
+    /// A demand is conditional under a <c>When</c>, <c>Unless</c> or async condition on its
+    /// component or any rule above it, under a per-row <c>Where</c> on its rule or one holding its
+    /// child validator, under a model-decided severity, and inside the <c>DependentRules</c> of a
+    /// rule that may not run, or fail without blocking a submit. Unconditional demands win.
     /// </remarks>
     FieldRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile);
 

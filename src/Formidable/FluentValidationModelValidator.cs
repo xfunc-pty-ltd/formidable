@@ -30,7 +30,6 @@ public sealed partial class FluentValidationModelValidator<TModel>
     // Each one of the three constants above; an int, so a read is never torn.
     private int _preValidateOverride;
     private int _validateAsyncOverride;
-    private int _dependentRules;
 
     /// <summary>Wraps <paramref name="validator"/>.</summary>
     /// <param name="validator">The FluentValidation validator to adapt.</param>
@@ -61,22 +60,20 @@ public sealed partial class FluentValidationModelValidator<TModel>
     public ValidationReport Validate(TModel model, ValidationProfile profile) =>
         ToReport(_validator.Validate(model, profile));
 
-    /// <summary>Whether rules can be selected and run one set at a time: <see langword="true"/> exactly when the wrapped validator is an <see cref="AbstractValidator{T}"/> whose <see cref="AbstractValidator{T}.ClassLevelCascadeMode"/> is <see cref="CascadeMode.Continue"/>, whose class overrides neither <c>PreValidate</c> nor <c>ValidateAsync</c>, and none of whose own rules carries <c>DependentRules</c>.</summary>
+    /// <summary>Whether rules can be selected and run one set at a time: <see langword="true"/> exactly when the wrapped validator is an <see cref="AbstractValidator{T}"/> whose <see cref="AbstractValidator{T}.ClassLevelCascadeMode"/> is <see cref="CascadeMode.Continue"/> and whose class overrides neither <c>PreValidate</c> nor <c>ValidateAsync</c>.</summary>
     /// <remarks>
     /// A class-level cascade stop lets a failing rule suppress later rules, which running part
     /// of a profile cannot reproduce. FluentValidation runs <c>PreValidate</c> once per call, and
     /// every call passes through <c>ValidateAsync</c>, so what an override of either adds would
-    /// be reported once for each set run. A set of rules run apart skips their
-    /// <c>DependentRules</c>.
-    /// Any of these makes this <see langword="false"/>, as does a hand-rolled
-    /// <see cref="IValidator{T}"/>, which cannot list its rules. A per-rule
-    /// <c>Cascade(CascadeMode.Stop)</c> does not matter.
+    /// be reported once per set. Any of these makes this <see langword="false"/>, as does a
+    /// hand-rolled <see cref="IValidator{T}"/>, which cannot list its rules. Neither a per-rule
+    /// <c>Cascade(CascadeMode.Stop)</c> nor <c>DependentRules</c> matters: a set runs a rule's
+    /// dependents with it, filtered by the profile.
     /// </remarks>
     public bool CanValidateByRule =>
         _validator is AbstractValidator<TModel> { ClassLevelCascadeMode: CascadeMode.Continue } abstractValidator
         && !OverridesPreValidate(abstractValidator)
-        && !OverridesValidateAsync(abstractValidator)
-        && !CarriesDependentRules(abstractValidator);
+        && !OverridesValidateAsync(abstractValidator);
 
     /// <summary>Whether the class of <paramref name="validator"/>, the wrapped validator, overrides <c>PreValidate</c>; worked out on the first ask and kept.</summary>
     /// <param name="validator">The wrapped validator.</param>
@@ -108,41 +105,6 @@ public sealed partial class FluentValidationModelValidator<TModel>
         {
             known = EntryPointOverrides<TModel>.OverridesValidateAsync(validator) ? Present : Absent;
             _validateAsyncOverride = known;
-        }
-
-        return known == Present;
-    }
-
-    /// <summary>Whether a rule <paramref name="validator"/>, the wrapped validator, declares for itself carries <c>DependentRules</c>; worked out on the first ask and kept, as <see cref="OverridesPreValidate"/> is.</summary>
-    /// <param name="validator">The wrapped validator.</param>
-    /// <returns><see langword="true"/> when at least one of the validator's own rules holds a dependent rule.</returns>
-    // FluentValidation asks the selector about a dependent rule in the context of the rule that
-    // carries it, and a dependent rule is never one of the validator's own rules, so
-    // RuleSetSelector refuses it and a set of rules run apart skips it. Only the validator's own
-    // rules are read: a dependent nested deeper sits under one of them, and one in a child
-    // validator, ChildRules or an Include() is asked in a child context, which the rule-level
-    // path answers as a whole run does. Kept because the capability is read at every field's
-    // class computation.
-    // FluentValidation offers no way to remove a rule or a dependent, so a kept yes never goes
-    // stale. A kept no does when DependentRules is called after the first ask, on a validator a
-    // form is already using: the capability stays on, and the rule-by-rule path skips those
-    // dependents.
-    private bool CarriesDependentRules(AbstractValidator<TModel> validator)
-    {
-        var known = _dependentRules;
-        if (known == Unread)
-        {
-            known = Absent;
-            foreach (var rule in (IEnumerable<IValidationRule>)validator)
-            {
-                if (rule.DependentRules?.Any() == true)
-                {
-                    known = Present;
-                    break;
-                }
-            }
-
-            _dependentRules = known;
         }
 
         return known == Present;
@@ -241,9 +203,9 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <param name="Rules">The identities selected for it.</param>
     private sealed record SelectedRulesSnapshot(ValidationProfile Profile, IReadOnlyList<RuleIdentity> Rules);
 
-    /// <summary>Validates <paramref name="model"/> against exactly the given rules in one validator call, filtering their child rules by <paramref name="profile"/> as validating the whole profile would.</summary>
+    /// <summary>Validates <paramref name="model"/> against exactly the given rules in one validator call, filtering their child rules and the rules inside their <c>DependentRules</c> by <paramref name="profile"/> as validating the whole profile would.</summary>
     /// <param name="model">The model to validate.</param>
-    /// <param name="profile">The rule selection whose ruleset names filter collection child rules, child validators and <c>Include()</c> internals.</param>
+    /// <param name="profile">The rule selection whose ruleset names filter collection child rules, child validators, <c>Include()</c> internals and the rules inside <c>DependentRules</c>.</param>
     /// <param name="rules">Identities from <see cref="SelectRules"/> on this same instance.</param>
     /// <param name="cancellationToken">Cancels an async rule still running.</param>
     /// <returns>The report for those rules, and whether it answers only for <paramref name="profile"/>; an empty set answers an empty report.</returns>
@@ -268,7 +230,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
         // holds: FluentValidation asks the selector about every rule it carries on each call, so
         // asking about one rule at a time costs that walk once per rule.
         var targets = ResolveRules(abstractValidator, rules);
-        var selector = new RuleSetSelector(targets, BuildWholeProfileSelector(profile));
+        var selector = new RuleSetSelector(targets, DependentsOf(targets), BuildWholeProfileSelector(profile));
         var context = new ValidationContext<TModel>(model, new PropertyChain(), selector);
         var report = ToReport(await _validator.ValidateAsync(context, cancellationToken).ConfigureAwait(false));
         return new RuleLevelResult(report, selector.SawProfileScopedDecision);
@@ -316,35 +278,73 @@ public sealed partial class FluentValidationModelValidator<TModel>
         return resolved;
     }
 
-    /// <summary>Admits exactly the given top-level rules, by reference, and hands child-context decisions to the profile's own ruleset selector.</summary>
+    /// <summary>Every rule declared inside the <c>DependentRules</c> of <paramref name="rules"/>, at any depth.</summary>
+    /// <param name="rules">The top-level rules a set runs.</param>
+    /// <returns>The dependent rules, compared by reference; <see langword="null"/> when none of the rules carries one.</returns>
+    // Read at each call rather than kept, so a DependentRules call made on a rule after the form
+    // first listed it is run like any other.
+    private static HashSet<IValidationRule>? DependentsOf(HashSet<IValidationRule> rules)
+    {
+        HashSet<IValidationRule>? dependents = null;
+        foreach (var rule in rules)
+        {
+            Collect(rule);
+        }
+
+        return dependents;
+
+        void Collect(IValidationRule owner)
+        {
+            if (owner.DependentRules is not { } children)
+            {
+                return;
+            }
+
+            foreach (var child in children)
+            {
+                if ((dependents ??= new HashSet<IValidationRule>(ReferenceEqualityComparer.Instance)).Add(child))
+                {
+                    Collect(child);
+                }
+            }
+        }
+    }
+
+    /// <summary>Admits exactly the given top-level rules, by reference, and hands their dependent rules and child-context decisions to the profile's own ruleset selector.</summary>
     /// <remarks>
-    /// A child whose adaptor carries no rulesets is consulted here and delegated to the profile's
-    /// <see cref="RulesetValidatorSelector"/>, the selector shape a full validation uses, so nested
-    /// rulesets, unscoped child validators and <c>Include()</c> internals filter identically. A
-    /// child whose adaptor carries rulesets runs under a selector FluentValidation builds from
-    /// those alone and never reaches this one. It also records whether any child decision
-    /// depended on the profile rather than on the admitting rule, which becomes
-    /// <see cref="RuleLevelResult.IsProfileScoped"/> for the whole set.
+    /// A dependent rule of an admitted rule, and a child whose adaptor carries no rulesets, are
+    /// delegated to the profile's <see cref="RulesetValidatorSelector"/>, the selector shape a
+    /// full validation uses, so they filter identically. A child whose adaptor carries rulesets
+    /// runs under a selector FluentValidation builds from those alone and never reaches this one.
+    /// It also records whether any such decision depended on the profile rather than on the
+    /// admitting rule, which becomes <see cref="RuleLevelResult.IsProfileScoped"/> for the set.
     /// </remarks>
-    // Never being consulted for a scoped child loses nothing: a selection that never reads the
-    // profile cannot depend on one.
+    // FluentValidation asks about a dependent rule outside a child context, from inside the rule
+    // carrying it, so the list of dependents is what tells one apart from a top-level rule the set
+    // leaves out. Never being consulted for a scoped child loses nothing: a selection that never
+    // reads the profile cannot depend on one.
     private sealed class RuleSetSelector : IValidatorSelector
     {
         private readonly HashSet<IValidationRule> _rules;
+        private readonly HashSet<IValidationRule>? _dependents;
         private readonly RulesetValidatorSelector _childSelector;
 
-        // Which admitted rule a child-context consultation belongs to. FluentValidation runs
-        // top-level rules sequentially and asks CanExecute for one at the start of its own
-        // execution, so every child consultation between one admission and the next is made
-        // under the rule just admitted. Reading it that way makes the profile-scoped signal as
-        // precise for a set as it is for a single rule; the set-wide fallback below can only ask
-        // whether a decision follows for EVERY member, which reports scope wherever any member
-        // could scope any child.
+        // Which admitted rule a child-context consultation, or a dependent rule's, belongs to.
+        // FluentValidation runs top-level rules sequentially and asks CanExecute for one at the
+        // start of its own execution, so every child or dependent consultation between one
+        // admission and the next is made under the rule just admitted. Reading it that way makes
+        // the profile-scoped signal as precise for a set as it is for a single rule; the set-wide
+        // fallback below can only ask whether a decision follows for EVERY member, which reports
+        // scope wherever any member could scope any child.
         private IValidationRule? _owner;
 
-        public RuleSetSelector(HashSet<IValidationRule> rules, RulesetValidatorSelector childSelector)
+        public RuleSetSelector(
+            HashSet<IValidationRule> rules,
+            HashSet<IValidationRule>? dependents,
+            RulesetValidatorSelector childSelector)
         {
             _rules = rules;
+            _dependents = dependents;
             _childSelector = childSelector;
         }
 
@@ -354,13 +354,18 @@ public sealed partial class FluentValidationModelValidator<TModel>
         {
             if (!context.IsChildContext)
             {
-                var admitted = _rules.Contains(rule);
-                if (admitted)
+                if (_rules.Contains(rule))
                 {
                     _owner = rule;
+                    return true;
                 }
 
-                return admitted;
+                // A dependent is asked about only while the rule carrying it runs, so _owner is
+                // the admitted rule it hangs from, however deep it sits.
+                if (_dependents is null || !_dependents.Contains(rule))
+                {
+                    return false;
+                }
             }
 
             if (!ChildDecisionIsProfileIndependent(rule))
@@ -372,7 +377,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
         }
 
         /// <summary>Whether every profile that selects the admitting top-level rule necessarily admits <paramref name="childRule"/>.</summary>
-        /// <param name="childRule">The child rule a child context is asking about.</param>
+        /// <param name="childRule">The child rule a child context is asking about, or a dependent rule of the admitting rule.</param>
         /// <returns><see langword="true"/> when the decision follows from the owner's own selection and never from the profile.</returns>
         /// <remarks>
         /// An <c>Include()</c> owner never guarantees it because it runs under every profile. An
@@ -430,7 +435,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
         }
     }
 
-    /// <summary>Partitions <paramref name="rules"/> by ruleset membership, giving an <c>Include()</c> rule and any rule reaching a child validator a group of its own, so no profile splits a group.</summary>
+    /// <summary>Partitions <paramref name="rules"/> by ruleset membership, giving an <c>Include()</c> rule, any rule reaching a child validator and any rule carrying <c>DependentRules</c> a group of its own, so no profile splits a group.</summary>
     /// <param name="rules">Identities from <see cref="SelectRules"/> on this same instance.</param>
     /// <returns>Groups that together hold every identity in <paramref name="rules"/> exactly once.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="rules"/> is <see langword="null"/>.</exception>
@@ -438,9 +443,9 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <remarks>
     /// Membership is everything FluentValidation's selection reads about a top-level rule that
     /// is not an <c>Include()</c>; memberships compare case-insensitively and in any order, and a
-    /// wildcard profile admits every group whole. A rule reaching a child validator is the one
-    /// that can raise <see cref="RuleLevelResult.IsProfileScoped"/> for a call, and its own
-    /// group keeps that off its siblings.
+    /// wildcard profile admits every group whole. Only a rule reaching a child validator or
+    /// carrying dependent rules can raise <see cref="RuleLevelResult.IsProfileScoped"/> for a
+    /// call, and its own group keeps that off its siblings.
     /// </remarks>
     public IReadOnlyList<IReadOnlyList<RuleIdentity>> GroupBySelectionClass(IReadOnlyList<RuleIdentity> rules)
     {
@@ -477,12 +482,12 @@ public sealed partial class FluentValidationModelValidator<TModel>
         return [.. groups];
     }
 
-    /// <summary>Whether <paramref name="rule"/> takes a group of its own: an <c>Include()</c> rule, or any rule reaching a child validator.</summary>
+    /// <summary>Whether <paramref name="rule"/> takes a group of its own: an <c>Include()</c> rule, a rule carrying <c>DependentRules</c>, or any rule reaching a child validator.</summary>
     /// <param name="rule">The top-level rule to classify.</param>
-    /// <returns><see langword="true"/> for an <c>Include()</c> rule or a rule with a child-validator component.</returns>
+    /// <returns><see langword="true"/> for an <c>Include()</c> rule, a rule with a dependent rule, or a rule with a child-validator component.</returns>
     private static bool SelectionFollowsMoreThanMembership(IValidationRule rule)
     {
-        if (rule is IIncludeRule)
+        if (rule is IIncludeRule || rule.DependentRules?.Any() == true)
         {
             return true;
         }
@@ -559,14 +564,6 @@ public sealed partial class FluentValidationModelValidator<TModel>
             throw FormidableConfigurationError.Mark(new NotSupportedException(
                 $"'{FriendlyTypeName.Of(_validator.GetType())}' overrides ValidateAsync, which runs once per validator " +
                 "call, so whatever the override adds or forwards would be run once for every set of rules run apart. " +
-                $"Check {nameof(CanValidateByRule)} first."));
-        }
-
-        if (CarriesDependentRules(abstractValidator))
-        {
-            throw FormidableConfigurationError.Mark(new NotSupportedException(
-                $"'{FriendlyTypeName.Of(_validator.GetType())}' declares a rule with DependentRules, which FluentValidation " +
-                "runs from inside the rule carrying them, so a set of rules run apart would skip them. " +
                 $"Check {nameof(CanValidateByRule)} first."));
         }
 

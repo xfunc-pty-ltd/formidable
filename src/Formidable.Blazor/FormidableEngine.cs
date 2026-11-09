@@ -799,9 +799,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // being checked, so it shows no "checking". The fields come from the seam the required
     // indicator reads and resolve through the introspector an issue lands through, so each field
     // that lights is one a declared rule's failure would land on. Not every field a failure can
-    // land on lights. The seam declares no path for a rule inside DependentRules or in a child
-    // validator a lambda cannot build without a model, none for the field a rule's code adds its
-    // failure under when that is not the field the rule names (a model-level Custom, say). A
+    // land on lights. The seam declares no path for a rule in a child validator a lambda cannot
+    // build without a model, and none for the field a rule's code adds its failure under when
+    // that is not the field the rule names (a model-level Custom, say). A
     // DelegatingModelValidator subclass that runs a check of its own declares only the wrapped
     // validator's paths unless it overrides GetDeclaredFieldPaths. A field only those check shows
     // no "checking" while they run, though the submit still waits for them. The rows of a

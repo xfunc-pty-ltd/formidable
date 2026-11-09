@@ -93,14 +93,14 @@ Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit
 
 On the default profiles (`LiveProfile` unset, so the live check runs the submit profile), the live
 check behind a committed change supplies the answer green waits for, unless `LiveDebounce` is
-`Timeout.InfiniteTimeSpan`. It does so only on a validator the engine can take rule by rule, or with
-`TrackFormValidity` on.
+`Timeout.InfiniteTimeSpan`. It does so only where the engine can run the validator's rules
+separately (take it rule by rule), or with `TrackFormValidity` on.
 
-Taking a validator rule by rule means running its rules separately, so one check can reuse what
-another found for the same values. FluentValidation's `AbstractValidator`
-allows it unless you set `ClassLevelCascadeMode.Stop`, override `PreValidate` or `ValidateAsync`,
-or chain `DependentRules` onto a rule of its own, as
+Taking a validator rule by rule lets one check reuse what another found for the same values.
+FluentValidation's `AbstractValidator` allows it unless you set `ClassLevelCascadeMode.Stop` or
+override `PreValidate` or `ValidateAsync`, as
 [Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit) says.
+A rule's `DependentRules` does not stop it.
 
 [`LiveProfile`](options.md#liveprofile) tracks the submit profile, so that check runs the submit
 rules. One answer covers the form, not only the changed field. A submit, and the whole-form re-check

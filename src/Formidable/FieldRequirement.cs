@@ -4,7 +4,8 @@ namespace Formidable;
 /// <remarks>
 /// Members order by strength; where a field carries several presence rules, the strongest
 /// answer wins. A presence rule may carry a condition, or a severity, that cannot be evaluated
-/// without a model instance, which is what <see cref="ConditionallyRequired"/> reports.
+/// without a model instance, or depend on a rule that may skip it, which is what
+/// <see cref="ConditionallyRequired"/> reports.
 /// </remarks>
 // The members are declared weakest first, and that numeric order is load-bearing: where the
 // declared rules make two presence demands of one field, the greater value wins, which is what
@@ -27,10 +28,15 @@ public enum FieldRequirement
     /// </remarks>
     NotRequired = 0,
 
-    /// <summary>Whether the profile's presence rules demand a value for the field depends on the model's state: each one that can fail as an error sits under a condition or has its severity decided from the model.</summary>
-    /// <remarks>One unconditional presence rule that fails as an error, alongside any of these, answers <see cref="Required"/>.</remarks>
+    /// <summary>Whether the profile's presence rules demand a value depends on the model: each one that can fail as an error sits under a condition, has a severity the model decides, or depends on a rule that may skip it.</summary>
+    /// <remarks>
+    /// A rule inside <c>DependentRules</c> is skipped when the rule carrying it does not run or
+    /// adds any failure, so it depends on that rule wherever that rule may not run or may fail
+    /// without blocking a submit. One unconditional presence rule that fails as an error,
+    /// alongside any of these, answers <see cref="Required"/>.
+    /// </remarks>
     ConditionallyRequired = 100,
 
-    /// <summary>The profile selects a presence rule for the field that carries no condition and fails as an error, so every validation under it demands a value.</summary>
+    /// <summary>The profile selects a presence rule for the field that fails as an error and runs on every submit that can pass, so no submit under the profile passes without a value.</summary>
     Required = 200,
 }

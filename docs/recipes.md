@@ -253,9 +253,16 @@ when one of its rules lacks a ruleset the attaching rule sits in. The same holds
 rules sits in a ruleset while the attaching rule sits in none. Rulesets named on the `SetValidator`
 call itself keep the child to one run.
 
-Only a validator with a class-level cascade stop, a `PreValidate` or `ValidateAsync` override,
-`DependentRules` on a rule of its own, or one that is not FluentValidation's `AbstractValidator`,
-re-runs every rule on each check.
+A rule of the validator's own that carries `DependentRules` may run again too, with the rules
+inside them. That needs one of those rules (at any depth, the rules of a child validator or
+`Include()` there included) to lack a ruleset the carrying rule sits in, or to sit in a ruleset
+while the carrying rule sits in none.
+
+To keep such a rule to one run, put each of those rules in every ruleset the carrying rule sits
+in, or in none when the carrying rule sits in none.
+
+Only a validator with a class-level cascade stop, a `PreValidate` or `ValidateAsync` override, or
+one that is not FluentValidation's `AbstractValidator`, re-runs every rule on each check.
 
 With `TrackFormValidity` on, narrowing saves nothing: the rules the live channel skipped still run
 at each check to keep `IsFormValid` honest. And no field wears the `Valid` class on the strength of
@@ -649,6 +656,8 @@ rather than "proven optional", and the shapes below draw no mark:
   `ConditionallyRequired`.
 - A presence rule whose severity is decided from the model, `WithSeverity(x => ...)`, which
   answers `ConditionallyRequired` as a condition does.
+- A presence rule inside the `DependentRules` of a rule that may not run, or may fail without
+  blocking a submit (a warning, say), which answers `ConditionallyRequired` too.
 
 A child validator scoped by the `SetValidator` call itself
 (`RuleFor(x => x.Address).SetValidator(new AddressValidator(), "Admin")`) is read under the

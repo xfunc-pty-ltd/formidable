@@ -40,9 +40,9 @@ public interface IRuleLevelValidator<in TModel>
     /// </remarks>
     IReadOnlyList<RuleIdentity> SelectRules(ValidationProfile profile);
 
-    /// <summary>Validates <paramref name="model"/> against exactly the given rules in one validator call, filtering their child rules by <paramref name="profile"/> as validating the whole profile would.</summary>
+    /// <summary>Validates <paramref name="model"/> against exactly the given rules in one validator call, filtering their child rules and the rules inside their <c>DependentRules</c> by <paramref name="profile"/> as validating the whole profile would.</summary>
     /// <param name="model">The model to validate.</param>
-    /// <param name="profile">The rule selection whose ruleset names filter collection child rules, child validators and <c>Include()</c> internals.</param>
+    /// <param name="profile">The rule selection whose ruleset names filter collection child rules, child validators, <c>Include()</c> internals and the rules inside <c>DependentRules</c>.</param>
     /// <param name="rules">Identities from <see cref="SelectRules"/> on this same instance.</param>
     /// <param name="cancellationToken">Cancels an async rule still running.</param>
     /// <returns>The report for those rules, and whether it answers only for <paramref name="profile"/> (<see cref="RuleLevelResult.IsProfileScoped"/>).</returns>
@@ -68,9 +68,10 @@ public interface IRuleLevelValidator<in TModel>
     /// <remarks>
     /// One group per rule is always a correct answer and costs only speed, one validation call per
     /// rule; splitting finer than selection demands stays correct because no profile splits a
-    /// group of one. A rule whose scope reaches a child validator is best given a group of its own,
-    /// because <see cref="RuleLevelResult.IsProfileScoped"/> is reported per call and would mark
-    /// every rule grouped with it.
+    /// group of one. A rule whose scope reaches a child validator, or that carries
+    /// <c>DependentRules</c>, is best given a group of its own, because
+    /// <see cref="RuleLevelResult.IsProfileScoped"/> is reported per call and would mark every
+    /// rule grouped with it.
     /// </remarks>
     IReadOnlyList<IReadOnlyList<RuleIdentity>> GroupBySelectionClass(IReadOnlyList<RuleIdentity> rules);
 }
