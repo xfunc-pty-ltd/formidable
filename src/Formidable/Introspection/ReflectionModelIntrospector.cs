@@ -21,7 +21,7 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
     /// <summary>How many parsed paths are remembered; once the cap is spent, a path is still parsed and answered, just not cached.</summary>
     // PropertyPath.TryParse is purely syntactic and never touches the model, so neither a
     // successful nor a failed parse is bounded by anything the app itself controls: the Blazor
-    // engine hands a server response's issue paths to Resolve unfiltered, and almost any
+    // engine hands a server response's issue paths to ResolveAll unfiltered, and almost any
     // attacker-chosen string parses as a valid single-segment path. A few thousand entries covers
     // even a large virtualized form (hundreds of rows, each legitimately producing its own path,
     // such as "Sessions[437].Title"). Two caps bound the cost together, because an entry costs a
@@ -81,6 +81,76 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
     public ResolvedField Resolve(object rootModel, string propertyPath)
     {
         ArgumentNullException.ThrowIfNull(rootModel);
+
+        return ResolveCore(rootModel, propertyPath, walks: null);
+    }
+
+    /// <summary>Resolves every path in <paramref name="propertyPaths"/> as <see cref="Resolve(object, string)"/> resolves it, apart from two cases the remarks name, reading the rows of each collection instance with no list index and no indexer from one shared walk, taken no further than the furthest row asked.</summary>
+    /// <param name="rootModel">The model every path starts from.</param>
+    /// <param name="propertyPaths">FluentValidation property paths; an empty one names the model-level field.</param>
+    /// <returns>One answer per path, in the order of <paramref name="propertyPaths"/>, each the answer <see cref="Resolve(object, string)"/> gives for that path apart from the two cases the remarks name.</returns>
+    /// <remarks>
+    /// A member returning a new collection on each read shares no walk. A path that read a walk
+    /// which threw as it closed, or that a walk refused partway, is answered again on its own. A
+    /// row can still get another answer than <see cref="Resolve(object, string)"/> gives in two
+    /// cases: a row of a collection that throws as a walk stops short of its last row, which
+    /// <see cref="Resolve(object, string)"/> refuses, and a row read after a getter changed its
+    /// collection without the walk throwing.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="rootModel"/> or <paramref name="propertyPaths"/> is <see langword="null"/>, or <paramref name="propertyPaths"/> holds a <see langword="null"/> path.</exception>
+    public IReadOnlyList<ResolvedField> ResolveAll(object rootModel, IReadOnlyList<string> propertyPaths)
+    {
+        ArgumentNullException.ThrowIfNull(rootModel);
+        ArgumentNullException.ThrowIfNull(propertyPaths);
+
+        // One record for the call: a row reached by walking its collection is read from the walk
+        // of that collection instance the call has made, so for a collection the paths reach as one
+        // instance the steps grow with the rows rather than with the rows times the paths. Each
+        // path is named as the record's reader, so the paths a walk served can be answered again.
+        // The record closes every walk still open when the call ends.
+        var walks = new WalkedCollections();
+        var resolved = new ResolvedField[propertyPaths.Count];
+        try
+        {
+            for (var i = 0; i < resolved.Length; i++)
+            {
+                walks.Reader = i;
+                resolved[i] = ResolveCore(rootModel, propertyPaths[i], walks);
+            }
+        }
+        finally
+        {
+            walks.Dispose();
+        }
+
+        // A collection that throws as its walk is closed answers every path through it as a
+        // refusal under Resolve, rows already read included, which answers taken from a shared walk
+        // cannot match after the fact. The paths that read such a walk are answered again on their
+        // own. So are the paths a walk refused partway answered with that refusal: the walk stays
+        // open across paths, so a getter read in between can change the collection under it (a
+        // HashSet then throws at its next step), where Resolve walks the changed collection
+        // afresh. The rows read before a refusal keep their answers, which a walk of their own
+        // reaches, and which a collection refusing every later walk would lose if read again.
+        // Every other path keeps the answer its shared walks gave, and a call where no walk failed
+        // to close or refused a reader has nothing to answer again.
+        if (walks.CloseFailed || walks.RefusedAnyReader)
+        {
+            foreach (var i in walks.ReadersOfWalksThatFailedToClose.Union(walks.ReadersRefusedPartway))
+            {
+                resolved[i] = ResolveCore(rootModel, propertyPaths[i], walks: null);
+            }
+        }
+
+        return resolved;
+    }
+
+    /// <summary>Resolves one path, reading a walked collection's rows from <paramref name="walks"/> when one is given.</summary>
+    /// <param name="rootModel">The model the path starts from.</param>
+    /// <param name="propertyPath">The path.</param>
+    /// <param name="walks">The call's record of the collections it has walked; <see langword="null"/> walks each collection afresh.</param>
+    /// <returns>The deepest non-null owner reached and the member name on it.</returns>
+    private ResolvedField ResolveCore(object rootModel, string propertyPath, WalkedCollections? walks)
+    {
         ArgumentNullException.ThrowIfNull(propertyPath);
 
         if (propertyPath.Length == 0)
@@ -99,7 +169,7 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
 
         for (var i = 0; i < segments.Count - 1; i++)
         {
-            var next = Navigate(current, segments[i]);
+            var next = Navigate(current, segments, i, walks);
 
             if (next is null)
             {
@@ -217,14 +287,26 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         }
     }
 
-    /// <summary>Advances one non-terminal <paramref name="segment"/> from <paramref name="current"/>, or <see langword="null"/> when it cannot be navigated.</summary>
+    /// <summary>Advances one non-terminal segment from <paramref name="current"/>, or <see langword="null"/> when it cannot be navigated.</summary>
     /// <param name="current">The object reached so far.</param>
-    /// <param name="segment">The property or indexer segment to navigate.</param>
-    /// <returns>The object the segment reaches; <see langword="null"/> for a segment such as a null value, a missing member, a throwing getter, an out-of-range index or a missing key, which <see cref="Resolve"/> answers with <paramref name="current"/> as the owner.</returns>
-    private object? Navigate(object current, PathSegment segment) =>
-        segment.IsIndexer
-            ? GetIndexedValue(current, segment.IndexToken!)
+    /// <param name="segments">The path's segments.</param>
+    /// <param name="at">The position of the property or indexer segment to navigate.</param>
+    /// <param name="walks">The call's record of the collections it has walked; <see langword="null"/> outside <see cref="ResolveAll"/>.</param>
+    /// <returns>The object the segment reaches; <see langword="null"/> for a segment such as a null value, a missing member, a throwing getter, an out-of-range index or a missing key, which <see cref="Resolve(object, string)"/> answers with <paramref name="current"/> as the owner.</returns>
+    private object? Navigate(object current, IReadOnlyList<PathSegment> segments, int at, WalkedCollections? walks)
+    {
+        var segment = segments[at];
+        return segment.IsIndexer
+            ? GetIndexedValue(current, segment.IndexToken!, walks, new CollectionPlace(segments, at))
             : GetPropertyValue(current, segment.PropertyName!);
+    }
+
+    /// <summary>The path that reaches a collection an indexer segment reads from: the segments before it, rejoined only when a walk needs it.</summary>
+    /// <param name="Segments">The path's segments.</param>
+    /// <param name="Count">How many leading segments reach the collection.</param>
+    // Walks are shared by instance; the place is how a member returning a new collection on each
+    // read is told apart from one returning the same instance (WalkedCollections).
+    private readonly record struct CollectionPlace(IReadOnlyList<PathSegment> Segments, int Count);
 
     private object? GetPropertyValue(object instance, string propertyName)
     {
@@ -268,7 +350,7 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         return property;
     }
 
-    private object? GetIndexedValue(object collection, string indexToken)
+    private object? GetIndexedValue(object collection, string indexToken, WalkedCollections? walks, CollectionPlace place)
     {
         var isNumeric = int.TryParse(indexToken, out var index);
 
@@ -289,10 +371,10 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
             }
         }
 
-        return TryIndexerProperty(collection, indexToken, isNumeric, index);
+        return TryIndexerProperty(collection, indexToken, isNumeric, index, walks, place);
     }
 
-    private object? TryIndexerProperty(object collection, string indexToken, bool isNumeric, int index)
+    private object? TryIndexerProperty(object collection, string indexToken, bool isNumeric, int index, WalkedCollections? walks, CollectionPlace place)
     {
         try
         {
@@ -300,7 +382,7 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
 
             if (indexer is null)
             {
-                return isNumeric ? ElementAtPosition(collection, index) : null;
+                return isNumeric ? ElementAtPosition(collection, index, walks, place) : null;
             }
 
             var parameterType = indexer.GetIndexParameters()[0].ParameterType;
@@ -318,29 +400,32 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
     /// <summary>Walks <paramref name="collection"/> to the row at <paramref name="index"/> in the order it enumerates, for a collection read by neither a list's index nor an indexer.</summary>
     /// <param name="collection">The collection a numeric token addresses.</param>
     /// <param name="index">The row's position.</param>
-    /// <returns>The row at that position; <see langword="null"/> past the end, for a negative position, for a value that is not a collection, or for a sequence of characters.</returns>
+    /// <param name="walks">The call's record of the collections it has walked, which the row is read from; <see langword="null"/> walks the collection afresh.</param>
+    /// <param name="place">The path that reached the collection.</param>
+    /// <returns>The row at that position; <see langword="null"/> past the end, for a negative position, for a value that is not a collection, for a sequence of characters, or when the collection throws during the walk or as it is closed.</returns>
     // FluentValidation numbers a collection's rows in the order it enumerates them, so the row
     // this walk reaches is the row a failure at that index describes, in a HashSet<T>, a
-    // LinkedList<T> or a type known only by IEnumerable<T>. Each resolution walks from the start.
-    // A sequence of characters is never walked: a string is read through its own indexer before
-    // this runs, and a character is never the owner of a member a path names.
-    private static object? ElementAtPosition(object collection, int index)
+    // LinkedList<T> or a type known only by IEnumerable<T>. A single resolution walks from the
+    // start to the row and closes the walk. ResolveAll reads every row of a collection instance
+    // from one walk, taken no further than the furthest row asked; a place that hands back a new
+    // collection each time is walked afresh to each row, and the paths that read a walk which
+    // throws as it is closed, or that a walk refused partway, are answered again on their own,
+    // walking the collections above it again too (ResolveAll). A walk that throws partway reaches
+    // the rows before the refusal either way. A sequence of characters is never walked: a string
+    // is read through its own indexer before this runs, and a character is never the owner of a
+    // member a path names.
+    private static object? ElementAtPosition(object collection, int index, WalkedCollections? walks, CollectionPlace place)
     {
         if (index < 0 || collection is not IEnumerable rows || collection is IEnumerable<char>)
         {
             return null;
         }
 
-        var position = 0;
-        foreach (var row in rows)
-        {
-            if (position++ == index)
-            {
-                return row;
-            }
-        }
-
-        return null;
+        object? row;
+        var read = walks is null
+            ? WalkedCollections.WalkTo(rows, index, out row)
+            : walks.TryRead(rows, Rejoin(place.Segments, 0, place.Count), index, out row);
+        return read ? row : null;
     }
 
     /// <summary>Looks up the indexer the token's kind asks for through the property cache, under a key no member name can collide with and counted against <see cref="MaxCachedProperties"/> as any member is.</summary>
@@ -424,19 +509,27 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         return totalCount == 1 ? only : null;
     }
 
-    private static string RejoinFrom(IReadOnlyList<PathSegment> segments, int start)
+    private static string RejoinFrom(IReadOnlyList<PathSegment> segments, int start) =>
+        Rejoin(segments, start, segments.Count);
+
+    /// <summary>Rejoins the segments from <paramref name="start"/> up to, not including, <paramref name="end"/> into path text.</summary>
+    /// <param name="segments">The path's segments.</param>
+    /// <param name="start">The first segment to include.</param>
+    /// <param name="end">The segment to stop before.</param>
+    /// <returns>The path text, such as <c>[0].Name</c> or <c>Teams[3].Members</c>.</returns>
+    private static string Rejoin(IReadOnlyList<PathSegment> segments, int start, int end)
     {
-        if (start == segments.Count - 1)
+        if (start == end - 1)
         {
             // Dominant case: the terminal segment never navigates, so most Resolve calls land
             // here with exactly one segment left — return its name with no StringBuilder.
-            var terminal = segments[start];
-            return terminal.IsIndexer ? $"[{terminal.IndexToken}]" : terminal.PropertyName!;
+            var only = segments[start];
+            return only.IsIndexer ? $"[{only.IndexToken}]" : only.PropertyName!;
         }
 
         var builder = new System.Text.StringBuilder();
 
-        for (var i = start; i < segments.Count; i++)
+        for (var i = start; i < end; i++)
         {
             var segment = segments[i];
 

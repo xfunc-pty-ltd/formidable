@@ -8,9 +8,11 @@ namespace Formidable.Introspection;
 /// <see cref="ReflectionModelIntrospector"/> only when no implementation is already registered,
 /// so a replacement is registered before that call.
 /// </remarks>
-// A member added later answers "cannot be read", the report TryReadValue already gives for a
-// member it cannot find, which every caller treats as a reason to claim nothing rather than as a
-// value; an implementation that does not override the addition claims nothing it did not read.
+// A member added later answers through the members above where it can (ResolveAll calls Resolve
+// once per path), so an implementation that does not override it resolves exactly as before.
+// Otherwise it answers "cannot be read", the report TryReadValue already gives for a member it
+// cannot find, which every caller treats as a reason to claim nothing rather than as a value; an
+// implementation that does not override the addition claims nothing it did not read.
 public interface IModelIntrospector
 {
     /// <summary>Resolves <paramref name="propertyPath"/> against <paramref name="rootModel"/> to the deepest non-null owner on the path and the member name on it.</summary>
@@ -23,6 +25,33 @@ public interface IModelIntrospector
     /// <paramref name="rootModel"/> with an empty member name.
     /// </remarks>
     ResolvedField Resolve(object rootModel, string propertyPath);
+
+    /// <summary>Resolves every path in <paramref name="propertyPaths"/> against <paramref name="rootModel"/> in one call.</summary>
+    /// <param name="rootModel">The model every path starts from.</param>
+    /// <param name="propertyPaths">FluentValidation property paths; an empty one names the model-level field.</param>
+    /// <returns>One answer per path, in the order of <paramref name="propertyPaths"/>: the answer <see cref="Resolve"/> gives for that path from the default, and from <see cref="ReflectionModelIntrospector.ResolveAll"/> apart from the two cases its own remarks name.</returns>
+    /// <remarks>
+    /// The default calls <see cref="Resolve"/> once per path. Override it when your
+    /// implementation walks a collection to reach a row, keeping each answer the one your own
+    /// <see cref="Resolve"/> gives. A wrapper may forward this member to the introspector it wraps
+    /// only when its <see cref="Resolve"/> answers as that one's does; a wrapper that changes an
+    /// answer (naming a dictionary entry by its key) keeps the default. A form hands this member
+    /// every issue of a check at once.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="rootModel"/> or <paramref name="propertyPaths"/> is <see langword="null"/>.</exception>
+    IReadOnlyList<ResolvedField> ResolveAll(object rootModel, IReadOnlyList<string> propertyPaths)
+    {
+        ArgumentNullException.ThrowIfNull(rootModel);
+        ArgumentNullException.ThrowIfNull(propertyPaths);
+
+        var resolved = new ResolvedField[propertyPaths.Count];
+        for (var i = 0; i < resolved.Length; i++)
+        {
+            resolved[i] = Resolve(rootModel, propertyPaths[i]);
+        }
+
+        return resolved;
+    }
 
     /// <summary>Reads <paramref name="propertyName"/> on <paramref name="owner"/>, with the type the member declares rather than the type its value has.</summary>
     /// <param name="owner">The instance to read from, a <see cref="ResolvedField.Owner"/>.</param>

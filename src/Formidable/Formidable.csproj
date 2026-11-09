@@ -25,6 +25,7 @@
         <Compile Include="..\Shared\FriendlyTypeName.cs" Link="Shared\FriendlyTypeName.cs" />
         <Compile Include="..\Shared\FormidableConfigurationError.cs" Link="Shared\FormidableConfigurationError.cs" />
         <Compile Include="..\Shared\ClosedGenericType.cs" Link="Shared\ClosedGenericType.cs" />
+        <Compile Include="..\Shared\WalkedCollections.cs" Link="Shared\WalkedCollections.cs" />
         <Using Include="Formidable.Shared" />
     </ItemGroup>
 
