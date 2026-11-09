@@ -623,7 +623,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _selectSubmitRules = validator is IRuleLevelValidator<TModel> ruleLevel
             ? ruleLevel.SelectRules
             : null;
-        _submitCoverage = new SubmitCoverageTracker(_verdictStore, ReAnswerOnItsWay, Resolve);
+        _submitCoverage = new SubmitCoverageTracker(_verdictStore, ReAnswerOnItsWay, ResolveIssues);
 
         _store = new ValidationMessageStore(editContext);
         editContext.OnFieldChanged += HandleFieldChanged;
@@ -755,31 +755,41 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             try
             {
-                var expanded = new List<string>();
+                var demanding = new List<string>();
+                var requirements = new List<FieldRequirement>();
                 foreach (var path in inspector.GetDeclaredFieldPaths(profile))
                 {
                     var requirement = inspector.GetFieldRequirement(path, profile);
-                    if (requirement == FieldRequirement.NotRequired)
+                    if (requirement != FieldRequirement.NotRequired)
                     {
-                        continue;
+                        demanding.Add(path);
+                        requirements.Add(requirement);
+                    }
+                }
+
+                // A templated path (Attendees[].Name) names a shape, and the fields that shape
+                // demands are the rows the model holds when this map is derived — so it is
+                // expanded against the model, one entry per row, through the expansion the
+                // load's green enumeration uses; a scalar path passes through it unchanged. The
+                // inspector is asked once per DECLARED path, above, because a requirement is a
+                // property of the template — a condition attaches to the declaration, so no row
+                // can carry a different answer — and per-row work stays expansion plus
+                // resolution, on a map that rebuilds on every rendered-field-set move, which a
+                // virtualized panel delivers in scroll bursts. Row churn keeps the entries
+                // current by the same signal that drops them: a row's fields registering or
+                // unregistering is exactly such a move. The entries are written in declared
+                // order and then row order, as one path at a time would write them.
+                var (resolved, paths, ends) = ReadWithWalks(walked => FieldsNamedBy(demanding, walked, withEnds: true));
+                map.EnsureCapacity(paths.Count);
+                var origin = 0;
+                for (var i = 0; i < paths.Count; i++)
+                {
+                    while (i >= ends![origin])
+                    {
+                        origin++;
                     }
 
-                    // A templated path (Attendees[].Name) names a shape, and the fields that
-                    // shape demands are the rows the model holds when this map is derived — so
-                    // it is expanded against the model, one entry per row, through the same
-                    // expansion the load's green enumeration uses; a scalar path passes through
-                    // it unchanged. The inspector is asked once per DECLARED path, above,
-                    // because a requirement is a property of the template — a condition
-                    // attaches to the declaration, so no row can carry a different answer —
-                    // and per-row work stays expansion plus resolution, on a map that rebuilds
-                    // on every rendered-field-set move, which a virtualized panel delivers in
-                    // scroll bursts. Row churn keeps the entries current by the same signal
-                    // that drops them: a row's fields registering or unregistering is exactly
-                    // such a move.
-                    foreach (var field in FieldsNamedBy(path, expanded))
-                    {
-                        map[field] = requirement;
-                    }
+                    map[resolved[i].ToFieldIdentifier(_model, paths[i])] = requirements[origin];
                 }
             }
             catch (Exception)
@@ -822,11 +832,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         try
         {
-            var scope = new HashSet<FieldIdentifier>();
-            var expanded = new List<string>();
-            foreach (var path in inspector.GetDeclaredFieldPaths(profile))
+            List<string> declared = [.. inspector.GetDeclaredFieldPaths(profile)];
+            var (resolved, paths, _) = ReadWithWalks(walked => FieldsNamedBy(declared, walked, withEnds: false));
+            var scope = new HashSet<FieldIdentifier>(paths.Count);
+            for (var i = 0; i < paths.Count; i++)
             {
-                scope.UnionWith(FieldsNamedBy(path, expanded));
+                scope.Add(resolved[i].ToFieldIdentifier(_model, paths[i]));
             }
 
             return scope;
@@ -869,19 +880,163 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return true;
     }
 
-    /// <summary>The fields <paramref name="declaredPath"/> names on the model as it stands: one for a scalar path, one per row for a collection template (<c>Lines[].Sku</c>), and none for an empty collection.</summary>
-    /// <param name="declaredPath">A path the validator declares.</param>
-    /// <param name="expanded">A scratch list the expansion fills, cleared as enumeration starts.</param>
-    /// <returns>Each field, resolved through <see cref="ResolvePath"/>.</returns>
-    // The one route from a declared path to fields, shared by the required indicator's map and a
-    // submit's checking indicator, so the two cannot disagree about which field a rule names.
-    private IEnumerable<FieldIdentifier> FieldsNamedBy(string declaredPath, List<string> expanded)
+    /// <summary>The paths <paramref name="declaredPaths"/> name on the model as it stands, resolved: one for a scalar path, one per row for a collection template (<c>Lines[].Sku</c>), and none for an empty collection.</summary>
+    /// <param name="declaredPaths">Paths the validator declares.</param>
+    /// <param name="walked">This read's record of the lists it walks, which the rows of a list read only by walking are counted and read from; <see langword="null"/> walks such a list afresh for each read.</param>
+    /// <param name="withEnds">Whether to say, for each declared path, where the paths it expands to end.</param>
+    /// <returns>The introspector's answers in the order of <paramref name="declaredPaths"/> and then row order, each resolved through <see cref="ResolveAll"/>; the path each was resolved from; and, under <paramref name="withEnds"/>, for each declared path the index its paths end before, otherwise <see langword="null"/>.</returns>
+    // The one route from declared paths to fields, shared by the required indicator's map, a
+    // submit's checking indicator and a load, so none of them can disagree about which field a
+    // rule names. A template expands a level at a time, leftmost open index first: the
+    // collections every path opens at that level are found by one resolve of their distinct paths
+    // and each counted once, and every row path then takes its place, so the order is the one a
+    // depth-first expansion gives. A declared path's rows therefore stay together at every
+    // level, which is what lets one end index per declared path say which rows came from it. The
+    // expanded paths are resolved together at the end. A collection read only by walking it (a
+    // HashSet<T>) and met again as the same instance is therefore walked a fixed number of times
+    // for the whole read, where one resolve per row walked it once per row; a member that builds
+    // a new collection on each read, or a collection that throws as a walk of it is closed, is
+    // walked to each row afresh, as one resolve per row walked it (WalkedCollections).
+    private (IReadOnlyList<ResolvedField> Resolved, List<string> Paths, int[]? Ends) FieldsNamedBy(
+        IReadOnlyList<string> declaredPaths, WalkedCollections? walked, bool withEnds)
     {
-        expanded.Clear();
-        ExpandTemplate(declaredPath, expanded, walked: null);
-        foreach (var path in expanded)
+        IReadOnlyList<string> paths = declaredPaths;
+        int[]? ends = null;
+        if (withEnds)
         {
-            yield return ResolvePath(path);
+            ends = new int[declaredPaths.Count];
+            for (var i = 0; i < ends.Length; i++)
+            {
+                ends[i] = i + 1;
+            }
+        }
+
+        while (true)
+        {
+            // Each path's head (the path up to its first open index) by number, each head's text
+            // made once however many paths open it.
+            List<string>? heads = null;
+            Dictionary<string, int>? headIndex = null;
+            var headOf = new int[paths.Count];
+            for (var i = 0; i < paths.Count; i++)
+            {
+                var path = paths[i];
+                var open = path.IndexOf("[]", StringComparison.Ordinal);
+                if (open < 0)
+                {
+                    headOf[i] = -1;
+                    continue;
+                }
+
+                headIndex ??= new Dictionary<string, int>(StringComparer.Ordinal);
+                if (!headIndex.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(path.AsSpan(0, open), out var head))
+                {
+                    heads ??= [];
+                    head = heads.Count;
+                    var text = path[..open];
+                    headIndex.Add(text, head);
+                    heads.Add(text);
+                }
+
+                headOf[i] = head;
+            }
+
+            if (heads is null)
+            {
+                var resolvedPaths = paths as List<string> ?? [.. paths];
+                return (ResolveAll(resolvedPaths), resolvedPaths, ends);
+            }
+
+            var counts = CollectionCounts(heads, walked);
+            var total = 0;
+            for (var i = 0; i < paths.Count; i++)
+            {
+                total += headOf[i] < 0 ? 1 : counts[headOf[i]];
+            }
+
+            var expanded = new List<string>(total);
+            var nextEnds = ends is null ? null : new int[ends.Length];
+            var origin = 0;
+            for (var i = 0; i < paths.Count; i++)
+            {
+                if (ends is not null)
+                {
+                    // Every declared path whose paths end before this one has all its rows now.
+                    while (i >= ends[origin])
+                    {
+                        nextEnds![origin++] = expanded.Count;
+                    }
+                }
+
+                var path = paths[i];
+                var head = headOf[i];
+                if (head < 0)
+                {
+                    expanded.Add(path);
+                    continue;
+                }
+
+                var headText = heads[head];
+                var rows = counts[head];
+                for (var index = 0; index < rows; index++)
+                {
+                    expanded.Add($"{headText}[{index}]{path.AsSpan(headText.Length + 2)}");
+                }
+            }
+
+            if (nextEnds is not null)
+            {
+                for (; origin < nextEnds.Length; origin++)
+                {
+                    nextEnds[origin] = expanded.Count;
+                }
+            }
+
+            paths = expanded;
+            ends = nextEnds;
+        }
+    }
+
+    /// <summary>Runs <paramref name="read"/> with one record of the lists it walks, closed as the read ends, and runs it again when closing a walk threw, reading the lists that threw one element at a time.</summary>
+    /// <typeparam name="T">What the read answers.</typeparam>
+    /// <param name="read">The read, which takes the record, or <see langword="null"/> for a walk per element read, and has no effect beyond its answer.</param>
+    /// <returns>The read's answer.</returns>
+    // A list that throws as its walk is closed refuses every read of one element, elements already
+    // read from the shared walk included, which those answers cannot match after the fact. The
+    // read is chained (a count decides which rows a template expands to, and those rows are then
+    // read), so it runs again whole rather than in part. The second run reads the places whose
+    // walks threw one element at a time, as a read of one element does, and every other list from
+    // a shared walk again, so a stable list beside one that threw costs a second walk rather than a
+    // walk per row. A list that throws in the second run too (one whose walks behave differently
+    // from read to read) leaves a third run that reads every list one element at a time.
+    private static T ReadWithWalks<T>(Func<WalkedCollections?, T> read)
+    {
+        var walked = new WalkedCollections();
+        var answer = ReadOnce(read, walked);
+        if (!walked.CloseFailed)
+        {
+            return answer;
+        }
+
+        var again = new WalkedCollections(walked.PlacesThatFailedToClose);
+        answer = ReadOnce(read, again);
+        return again.CloseFailed ? read(null) : answer;
+    }
+
+    /// <summary>Runs <paramref name="read"/> with <paramref name="walked"/> and closes it as the read ends, however it ends.</summary>
+    /// <typeparam name="T">What the read answers.</typeparam>
+    /// <param name="read">The read.</param>
+    /// <param name="walked">The record it reads through.</param>
+    /// <returns>The read's answer.</returns>
+    private static T ReadOnce<T>(Func<WalkedCollections?, T> read, WalkedCollections walked)
+    {
+        try
+        {
+            return read(walked);
+        }
+        finally
+        {
+            walked.Dispose();
         }
     }
 
@@ -1723,10 +1878,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         List<FieldIdentifier>? departed = null;
         foreach (var field in _engagedFields)
         {
-            if (HasDeparted(field) && !KeptByOverride(field))
+            if (HasDeparted(field))
             {
                 (departed ??= []).Add(field);
             }
+        }
+
+        if (departed is not null && KeptByOverride(departed) is { Count: > 0 } kept)
+        {
+            departed.RemoveAll(kept.Contains);
         }
 
         var dropped = false;
@@ -3229,7 +3389,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // field never engaged gets no entry at all. Intersected with the engaged set as
                 // it stands here, so a field pruned mid-pass — it left the page — does not have
                 // its entry restored.
-                var byField = GroupByResolvedField(report.Issues);
+                var byField = GroupByResolvedField(ResolveEach(report.Issues));
                 foreach (var field in engagedSnapshot)
                 {
                     if (_engagedFields.Contains(field))
@@ -3246,8 +3406,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // Both projections split byField rather than re-walking the report: a severity
                 // filter and a field filter commute over one fixed issue order, so splitting the
                 // grouping already built above reproduces what grouping report.Errors and the
-                // non-error remainder separately would, at one Resolve call per issue instead of
-                // three.
+                // non-error remainder separately would, resolving each issue once instead of
+                // three times.
                 if (ReferenceEquals(liveProfile, _options.SubmitProfile))
                 {
                     (_submitVerdictErrors, _submitVerdictAdvisories) = SplitBySeverity(byField);
@@ -3373,13 +3533,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                         // whose stamp trails the edit counter can never compare fresh, and any
                         // fresher writer bumped _formValidityStamp first — the gate this branch
                         // already sits behind.
-                        var errorFields = new HashSet<FieldIdentifier>();
-                        foreach (var issue in report.Errors)
-                        {
-                            errorFields.Add(Resolve(issue));
-                        }
-
-                        _submitCoverage.RecordWholeModelAnswer(editStamp, errorFields);
+                        _submitCoverage.RecordWholeModelAnswer(editStamp, [.. ResolveIssues(report.Errors)]);
                         movedCoverage = true;
                     }
 
@@ -3502,15 +3656,93 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    private FieldIdentifier Resolve(ValidationIssue issue) => ResolvePath(issue.Path);
+    /// <summary>The introspector's answers for <paramref name="paths"/>, resolved against the model in one call; none, and no call, for no paths.</summary>
+    /// <param name="paths">Paths a validator declared or issues reported, or the collections a template opens.</param>
+    /// <returns>One answer per path, in order.</returns>
+    // Every path the engine resolves comes through here with all the paths of its read at once
+    // (a whole report, a whole declared set, the collections one level of a template opens), and
+    // every answer that names a field becomes one through ToFieldIdentifier, so a demand and the
+    // failure it describes cannot land on different fields. In one call the default introspector
+    // reads a collection it reaches only by walking it, met again as the same instance, from one
+    // walk rather than a walk per row (IModelIntrospector.ResolveAll). Two cases walk again: a
+    // member that builds a new collection on each read shares no walk, and a path the default
+    // introspector answers again on its own, because the walk it read threw as it closed or
+    // refused it partway, walks the collections on that path afresh.
+    private IReadOnlyList<ResolvedField> ResolveAll(IReadOnlyList<string> paths) =>
+        paths.Count == 0 ? [] : _introspector.ResolveAll(_model, paths);
 
-    /// <summary>Resolves a path against the model through the introspector and turns the result into a <see cref="FieldIdentifier"/>.</summary>
-    /// <param name="path">A path a validator declared or an issue reported.</param>
-    /// <returns>The identifier of the object and member the path names, keyed on the root model and the whole path where the walk ends on a struct.</returns>
-    // The one place an issue's path and a rule's declared path become the same kind of answer,
-    // so a demand and the failure it describes cannot land on different fields.
-    private FieldIdentifier ResolvePath(string path) =>
-        _introspector.Resolve(_model, path).ToFieldIdentifier(_model, path);
+    /// <summary>Resolves the issues' paths in one call (<see cref="ResolveAll"/>) and turns each answer into a <see cref="FieldIdentifier"/>.</summary>
+    /// <param name="issues">The issues.</param>
+    /// <returns>For each issue, in order, the identifier of the object and member it lands on, keyed on the root model and the whole path where the walk ends on a struct.</returns>
+    private FieldIdentifier[] ResolveIssues(IReadOnlyList<ValidationIssue> issues)
+    {
+        var paths = new string[issues.Count];
+        WritePaths(issues, paths, 0);
+        var resolved = ResolveAll(paths);
+        var fields = new FieldIdentifier[paths.Length];
+        for (var i = 0; i < fields.Length; i++)
+        {
+            fields[i] = resolved[i].ToFieldIdentifier(_model, paths[i]);
+        }
+
+        return fields;
+    }
+
+    /// <summary>Pairs each issue with the field it lands on, resolving them all in one call (<see cref="ResolveAll"/>).</summary>
+    /// <param name="issues">The issues.</param>
+    /// <returns>Each issue with its field, in order.</returns>
+    private List<(ValidationIssue Issue, FieldIdentifier Field)> ResolveEach(IReadOnlyList<ValidationIssue> issues)
+    {
+        var paths = new string[issues.Count];
+        WritePaths(issues, paths, 0);
+        return Paired(issues, ResolveAll(paths), paths, 0);
+    }
+
+    /// <summary>Pairs each of a report's errors and advisories with the field it lands on, resolving both kinds in one call (<see cref="ResolveAll"/>), errors first.</summary>
+    /// <param name="report">The report.</param>
+    /// <returns>The errors with their fields and the advisories with theirs, each in report order.</returns>
+    private (List<(ValidationIssue Issue, FieldIdentifier Field)> Errors, List<(ValidationIssue Issue, FieldIdentifier Field)> Advisories)
+        ResolveEach(ValidationReport report)
+    {
+        var errors = report.Errors;
+        var advisories = report.Advisories;
+        var paths = new string[errors.Count + advisories.Count];
+        WritePaths(errors, paths, 0);
+        WritePaths(advisories, paths, errors.Count);
+        var resolved = ResolveAll(paths);
+        return (Paired(errors, resolved, paths, 0), Paired(advisories, resolved, paths, errors.Count));
+    }
+
+    /// <summary>Writes each issue's path into <paramref name="paths"/>, from <paramref name="offset"/> on.</summary>
+    /// <param name="issues">The issues.</param>
+    /// <param name="paths">The paths one resolve call takes.</param>
+    /// <param name="offset">Where the first issue's path goes.</param>
+    private static void WritePaths(IReadOnlyList<ValidationIssue> issues, string[] paths, int offset)
+    {
+        for (var i = 0; i < issues.Count; i++)
+        {
+            paths[offset + i] = issues[i].Path;
+        }
+    }
+
+    /// <summary>Pairs each issue with the field its answer names.</summary>
+    /// <param name="issues">The issues, whose paths sit in <paramref name="paths"/> from <paramref name="offset"/> on.</param>
+    /// <param name="resolved">The answers for <paramref name="paths"/>.</param>
+    /// <param name="paths">The paths the answers were resolved from.</param>
+    /// <param name="offset">Where the first issue's path and answer sit.</param>
+    /// <returns>Each issue with its field, in order.</returns>
+    private List<(ValidationIssue Issue, FieldIdentifier Field)> Paired(
+        IReadOnlyList<ValidationIssue> issues, IReadOnlyList<ResolvedField> resolved, string[] paths, int offset)
+    {
+        var pairs = new List<(ValidationIssue Issue, FieldIdentifier Field)>(issues.Count);
+        for (var i = 0; i < issues.Count; i++)
+        {
+            var at = offset + i;
+            pairs.Add((issues[i], resolved[at].ToFieldIdentifier(_model, paths[at])));
+        }
+
+        return pairs;
+    }
 
     /// <summary>Writes the one Information-level diagnostic for a validator that cannot report its rules: no required marks from the rules, and no load confirmations.</summary>
     // Information rather than Warning, because an uninspectable validator is a supported
@@ -3660,6 +3892,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Reports one suppressed issue: a Trace line, a logged warning, <see cref="FormidableOptions.SuppressedIssueDiagnostic"/>, and <see cref="FormidableOptions.NeverRegisteredFieldDiagnostic"/> for a field nothing ever registered.</summary>
     /// <param name="issue">The issue that will not show.</param>
+    /// <param name="field">The field the issue resolved to, which both callers already hold.</param>
     /// <remarks>
     /// Two sites call it: a submit, for the errors its reveal ledger leaves undisclosed, and
     /// <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/>, for an advisory its
@@ -3668,8 +3901,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <see cref="FormidableOptions.DisclosureOverride"/> hides.
     /// </remarks>
     // One place for both sites keeps the three channels from drifting apart. The logged warning
-    // needs no wiring on WebAssembly, whose default provider is the browser console.
-    private void ReportSuppressed(ValidationIssue issue)
+    // needs no wiring on WebAssembly, whose default provider is the browser console. The field
+    // is handed in rather than resolved again, so a submit suppressing every row of a walked
+    // collection costs no second walk per row.
+    private void ReportSuppressed(ValidationIssue issue, FieldIdentifier field)
     {
         var path = DiagnosticPathSanitizer.ForDiagnostic(issue.Path);
         FormidableDiagnostics.Warn(
@@ -3683,7 +3918,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // the path the same treatment, and the options' documentation says so.
         _options.SuppressedIssueDiagnostic?.Invoke(issue);
 
-        if (_options.NeverRegisteredFieldDiagnostic is not null && !Registry.HasEverRegistered(Resolve(issue)))
+        if (_options.NeverRegisteredFieldDiagnostic is not null && !Registry.HasEverRegistered(field))
         {
             _options.NeverRegisteredFieldDiagnostic(issue);
         }
@@ -3759,38 +3994,62 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private bool HasDeparted(FieldIdentifier field) =>
         Registry.HasEverRegistered(field) && !IsRendered(field);
 
-    /// <summary>Whether a departed <paramref name="field"/> stays engaged: under <see cref="LiveIssueDisclosure.EngagedAndVisible"/>, its live view shows an issue whose path still resolves to it.</summary>
-    /// <param name="field">An engaged field that has left the page.</param>
-    /// <returns><see langword="true"/> while the field's live message shows and still describes it.</returns>
-    private bool KeptByOverride(FieldIdentifier field) =>
-        _options.LiveDisclosure == LiveIssueDisclosure.EngagedAndVisible
-        && _liveVerdicts.TryGetValue(field, out var filed)
-        && LiveViewOf(field, filed) is { } shown
-        && shown.Exists(issue => Resolve(issue).Equals(field));
+    /// <summary>Which of the departed <paramref name="departed"/> fields stay engaged: under <see cref="LiveIssueDisclosure.EngagedAndVisible"/>, each whose live view shows an issue whose path still resolves to it.</summary>
+    /// <param name="departed">Engaged fields that have left the page.</param>
+    /// <returns>The fields whose live message shows and still describes them; <see langword="null"/> under any other policy, or when no departed field's view shows an issue.</returns>
+    // Every departed field's shown issues are resolved in one call (ResolveAll).
+    private HashSet<FieldIdentifier>? KeptByOverride(List<FieldIdentifier> departed)
+    {
+        if (_options.LiveDisclosure != LiveIssueDisclosure.EngagedAndVisible)
+        {
+            return null;
+        }
 
-    /// <summary>The report's advisories whose field may show, resolved and grouped by field.</summary>
-    /// <param name="report">A submit's report, with or without errors; both branches of <see cref="ValidateForSubmitAsync"/> use it alike.</param>
+        var owners = new List<FieldIdentifier>();
+        var shown = new List<ValidationIssue>();
+        foreach (var field in departed)
+        {
+            if (_liveVerdicts.TryGetValue(field, out var filed) && LiveViewOf(field, filed) is { } view)
+            {
+                foreach (var issue in view)
+                {
+                    owners.Add(field);
+                    shown.Add(issue);
+                }
+            }
+        }
+
+        if (shown.Count == 0)
+        {
+            return null;
+        }
+
+        var kept = new HashSet<FieldIdentifier>();
+        var resolved = ResolveIssues(shown);
+        for (var i = 0; i < resolved.Length; i++)
+        {
+            if (resolved[i].Equals(owners[i]))
+            {
+                kept.Add(owners[i]);
+            }
+        }
+
+        return kept;
+    }
+
+    /// <summary>The advisories whose field may show, grouped by field.</summary>
+    /// <param name="advisories">A submit's advisories with the fields they resolved to; both branches of <see cref="ValidateForSubmitAsync"/> use it alike.</param>
     /// <returns>Each visible field's advisories, in report order.</returns>
-    private Dictionary<FieldIdentifier, List<ValidationIssue>> ResolveVisibleAdvisories(ValidationReport report) =>
-        GroupByResolvedField(
-            report.Advisories
-                .Select(i => (Issue: i, Field: Resolve(i)))
-                .Where(x => IsVisible(x.Issue, x.Field)));
-
-    /// <summary>Resolves each issue to its field once and groups the issues by field.</summary>
-    /// <param name="issues">The issues to group.</param>
-    /// <returns>Each field's issues, in arrival order.</returns>
-    // One path parse and object walk per issue, rather than one per issue for every field
-    // waiting on the verdict.
-    private Dictionary<FieldIdentifier, List<ValidationIssue>> GroupByResolvedField(
-        IEnumerable<ValidationIssue> issues) =>
-        GroupByResolvedField(issues.Select(issue => (Issue: issue, Field: Resolve(issue))));
+    private Dictionary<FieldIdentifier, List<ValidationIssue>> ResolveVisibleAdvisories(
+        List<(ValidationIssue Issue, FieldIdentifier Field)> advisories) =>
+        GroupByResolvedField(advisories.Where(x => IsVisible(x.Issue, x.Field)));
 
     /// <summary>Groups issues whose field the caller has already resolved, keeping each field's arrival order.</summary>
     /// <param name="resolved">The issues paired with their fields.</param>
     /// <returns>Each field's issues.</returns>
-    // The caller keeps the pairs because it has its own use for them (a visibility filter, a
-    // reveal-ledger union), and resolving again here would be the cost the other overload avoids.
+    // The caller resolves every issue it groups in one call (ResolveEach) and keeps the pairs
+    // where it has its own use for them (a visibility filter, a reveal-ledger union), so no issue
+    // is resolved twice.
     private static Dictionary<FieldIdentifier, List<ValidationIssue>> GroupByResolvedField(
         IEnumerable<(ValidationIssue Issue, FieldIdentifier Field)> resolved)
     {
@@ -4133,15 +4392,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     _revealedErrorFields.Clear();
                     _gateArmed = false;
 
-                    _submitVerdictAdvisories = ResolveVisibleAdvisories(report);
+                    _submitVerdictAdvisories = ResolveVisibleAdvisories(ResolveEach(report.Advisories));
                     _revealedAdvisoryFields.Clear();
                     _revealedAdvisoryFields.UnionWith(_submitVerdictAdvisories.Keys);
                 }
                 else
                 {
-                    var resolvedErrors = report.Errors
-                        .Select(issue => (Issue: issue, Field: Resolve(issue)))
-                        .ToList();
+                    var (resolvedErrors, resolvedAdvisories) = ResolveEach(report);
 
                     // Reveal is field-granular, and the ledger unions first so everything below
                     // answers from the state the views will actually read. An issue whose own
@@ -4171,7 +4428,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     foreach (var suppressed in resolvedErrors
                         .Where(x => !_revealedErrorFields.Contains(x.Field)))
                     {
-                        ReportSuppressed(suppressed.Issue);
+                        ReportSuppressed(suppressed.Issue, suppressed.Field);
                     }
 
                     // The full resolved answer is the channel's source; the ledger is what the
@@ -4188,7 +4445,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     // warning while passing every error rule. The advisory ledger unions the same
                     // way the error ledger does, so a field once shown a warning keeps that
                     // warning refreshed across later submits that found it momentarily clean.
-                    _submitVerdictAdvisories = ResolveVisibleAdvisories(report);
+                    _submitVerdictAdvisories = ResolveVisibleAdvisories(resolvedAdvisories);
                     _revealedAdvisoryFields.UnionWith(_submitVerdictAdvisories.Keys);
 
                     // The summary names what the submit view shows as this submit lands: its own
@@ -4343,9 +4600,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         var clientStale = _submitAnswerEditStamp != _editStamp;
         var landed = false;
 
-        foreach (var issue in issues)
+        // The reply is read once and its paths resolved in one call, so a reply naming every row
+        // of a collection read only by walking it walks that collection once.
+        ValidationIssue[] reply = [.. issues];
+        var replyFields = ResolveIssues(reply);
+        for (var at = 0; at < reply.Length; at++)
         {
-            var field = Resolve(issue);
+            var issue = reply[at];
+            var field = replyFields[at];
 
             if (issue.Severity == ValidationSeverity.Error)
             {
@@ -4368,7 +4630,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // stored — and no defensive gate stands in for it either: that gate exists
                 // because a hidden error would otherwise fail a submit silently, and an advisory
                 // fails nothing.
-                ReportSuppressed(issue);
+                ReportSuppressed(issue, field);
                 continue;
             }
 
@@ -4593,8 +4855,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // keeps its probe from running an async rule a second time (AdoptFormValidity).
                 AdoptFormValidity(report, beganAtEditStamp);
 
-                _submitVerdictErrors = GroupByResolvedField(report.Errors);
-                _submitVerdictAdvisories = GroupByResolvedField(report.Advisories);
+                var (errors, advisories) = ResolveEach(report);
+                _submitVerdictErrors = GroupByResolvedField(errors);
+                _submitVerdictAdvisories = GroupByResolvedField(advisories);
                 RecordSubmitAnswer(beganAtEditStamp);
 
                 adopted = AdoptLoadedValues(_submitVerdictErrors, profile);
@@ -4662,23 +4925,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private HashSet<FieldIdentifier> AdoptLoadedValues(
         Dictionary<FieldIdentifier, List<ValidationIssue>> errors, ValidationProfile profile)
     {
-        var adopted = new HashSet<FieldIdentifier>();
-        var considered = new HashSet<FieldIdentifier>();
-
-        // Every value the load reads is read here, in one turn, so the lists it walks are walked
-        // once for all of its reads and the record goes when this returns: no later read can meet
-        // elements the model has since replaced.
-        var walked = new WalkedLists();
-
-        foreach (var field in errors.Keys)
-        {
-            Consider(field);
-        }
-
-        foreach (var path in DeclaredFieldPaths(profile, walked))
-        {
-            Consider(ResolvePath(path));
-        }
+        // Every value the load reads is read here, in one turn, so a list it meets again as the
+        // same instance shares one walk across all of its reads (ReadWithWalks says when the read
+        // runs again), and the record goes when this returns: no later read can meet elements the
+        // model has since replaced.
+        var adopted = ReadWithWalks(walked => ChooseAdopted(errors, profile, walked));
 
         foreach (var field in adopted)
         {
@@ -4691,15 +4942,40 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         return adopted;
+    }
 
-        void Consider(FieldIdentifier field)
+    /// <summary>The fields whose loaded value is non-empty, among the load's error sites and the fields the validator declares rules for.</summary>
+    /// <param name="errors">The load's errors grouped by field.</param>
+    /// <param name="profile">The profile whose declared fields are read.</param>
+    /// <param name="walked">The load's record of the lists it walks; <see langword="null"/> walks such a list afresh for each read.</param>
+    /// <returns>The fields to adopt.</returns>
+    private HashSet<FieldIdentifier> ChooseAdopted(
+        Dictionary<FieldIdentifier, List<ValidationIssue>> errors, ValidationProfile profile, WalkedCollections? walked)
+    {
+        var adopted = new HashSet<FieldIdentifier>();
+        var considered = new HashSet<FieldIdentifier>();
+
+        foreach (var (field, issues) in errors)
+        {
+            Consider(field, issues[0].Path);
+        }
+
+        var (fields, paths) = DeclaredFields(profile, walked);
+        for (var i = 0; i < fields.Length; i++)
+        {
+            Consider(fields[i], paths[i]);
+        }
+
+        return adopted;
+
+        void Consider(FieldIdentifier field, string path)
         {
             if (!considered.Add(field))
             {
                 return;
             }
 
-            if (TryReadLoadedValue(field, walked, out var value, out var declaredType)
+            if (TryReadLoadedValue(field, path, walked, out var value, out var declaredType)
                 && !IsEmptyValue(value, declaredType))
             {
                 adopted.Add(field);
@@ -4708,8 +4984,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Reads the value <paramref name="field"/> names for the load: a list or array element from the collection itself, any other member through the introspector.</summary>
-    /// <param name="field">An error site or a declared field, as <see cref="ResolvePath"/> names it.</param>
-    /// <param name="walked">The load's record of the lists it has walked, which an element of a list read only by walking comes from.</param>
+    /// <param name="field">An error site or a declared field, as <see cref="ResolvedFieldExtensions.ToFieldIdentifier"/> names it.</param>
+    /// <param name="path">The path the field was resolved from, which places an element in the list it belongs to.</param>
+    /// <param name="walked">The load's record of the lists it has walked, which an element of a list read only by walking comes from; <see langword="null"/> walks the list afresh.</param>
     /// <param name="value">The value read.</param>
     /// <param name="declaredType">The type the emptiness test reads the value as.</param>
     /// <returns><see langword="true"/> when a value was read; <see langword="false"/> for a member or element that cannot be read.</returns>
@@ -4723,14 +5000,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // object or an interface and holding a value type's default as empty, the silent direction
     // IsEmptyValue already errs in. A digits-only name is never a member, so no member read is
     // displaced.
-    private bool TryReadLoadedValue(FieldIdentifier field, WalkedLists walked, out object? value, out Type? declaredType)
+    private bool TryReadLoadedValue(FieldIdentifier field, string path, WalkedCollections? walked, out object? value, out Type? declaredType)
     {
         if (ResolvedFieldExtensions.IsIndexedList(field.Model)
             && ResolvedFieldExtensions.TryParseIndex(field.FieldName, out var index))
         {
             var elements = field.Model;
             declaredType = null;
-            if (!TryReadElement(elements, index, walked, out value))
+            if (!TryReadElement(elements, index, walked, ListPlace(path), out value))
             {
                 return false;
             }
@@ -4745,10 +5022,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>Reads the element at <paramref name="index"/> from a list <see cref="ResolvedFieldExtensions.IsIndexedList"/> accepts, the read the load and the collection count share.</summary>
     /// <param name="elements">The list.</param>
     /// <param name="index">The element's index.</param>
-    /// <param name="walked">The load's record of the lists it has walked; <see langword="null"/> outside a load, where each read of a list read only by walking walks it.</param>
+    /// <param name="walked">The record of the lists the read in hand has walked, which an element of a list read only by walking comes from; <see langword="null"/> walks the list afresh.</param>
+    /// <param name="place">The path that reached the list, which tells a list met again from a new one.</param>
     /// <param name="value">The element read; <see langword="null"/> when it cannot be read.</param>
     /// <returns><see langword="true"/> when the element was read; <see langword="false"/> past the end, or when the list refuses the read.</returns>
-    private static bool TryReadElement(object elements, int index, WalkedLists? walked, out object? value)
+    private static bool TryReadElement(object elements, int index, WalkedCollections? walked, string place, out object? value)
     {
         value = null;
         try
@@ -4768,25 +5046,22 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // without knowing its element type, so the element is found by walking it.
             // FluentValidation numbers a collection's items in the order it enumerates them, so
             // the item the walk reaches at an index is the one FluentValidation reported there.
-            // A load reads every row it names, and a walk per read would grow with the square of
-            // the row count, so in a load each such list is walked once and its rows read from
-            // that walk.
-            if (walked is not null)
+            // A load, the required marks and a submit's "checking" each read every row they
+            // name, and a walk per read would grow with the square of the row count, so a list
+            // met again as the same instance shares one walk per record, taken only as far as the
+            // furthest row asked, and its rows are read from that walk. That walk stays open across
+            // reads, so a getter read since it began can change the list under it (a
+            // version-checked list throws at the walk's next step). A row from such a refusal on is
+            // read by a walk of its own, as a read of that row alone reads it; a list that refuses
+            // every walk refuses that one too.
+            var collection = (System.Collections.IEnumerable)elements;
+            if (walked is null)
             {
-                return walked.TryRead((System.Collections.IEnumerable)elements, index, out value);
+                return WalkedCollections.WalkTo(collection, index, out value);
             }
 
-            var position = 0;
-            foreach (var item in (System.Collections.IEnumerable)elements)
-            {
-                if (position++ == index)
-                {
-                    value = item;
-                    return true;
-                }
-            }
-
-            return false;
+            return walked.TryRead(collection, place, index, out value)
+                || (walked.RefusedPartway(collection) && WalkedCollections.WalkTo(collection, index, out value));
         }
         catch
         {
@@ -4795,6 +5070,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             value = null;
             return false;
         }
+    }
+
+    /// <summary>The path that reaches the list an element path names: the path without its last index, so <c>Matrix[2][5]</c> gives <c>Matrix[2]</c>.</summary>
+    /// <param name="path">A path whose last segment is an index.</param>
+    /// <returns>The path up to the list.</returns>
+    private static string ListPlace(string path)
+    {
+        var open = path.LastIndexOf('[');
+        return open < 0 ? path : path[..open];
     }
 
     /// <summary>The element type <paramref name="elements"/> declares, where it can be read: an array's element type, the type argument of the <see cref="List{T}"/> or <see cref="System.Collections.ObjectModel.Collection{T}"/> the list is or derives from, or that of the list interface a list known only by <see cref="IList{T}"/> or <see cref="IReadOnlyList{T}"/> implements.</summary>
@@ -4826,19 +5110,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return elements is System.Collections.IList ? null : ResolvedFieldExtensions.GenericListElementType(type);
     }
 
-    /// <summary>The paths the validator declares for <paramref name="profile"/>, each collection template expanded to one path per row the model holds.</summary>
+    /// <summary>The fields the validator declares for <paramref name="profile"/>, each collection template expanded to one field per row the model holds.</summary>
     /// <param name="profile">The profile.</param>
-    /// <param name="walked">The load's record of the lists it has walked, which the rows of a list read only by walking are counted from.</param>
-    /// <returns>The expanded paths (<c>Attendees[].Name</c> becomes one per attendee, none for an empty list); empty when the validator cannot be inspected or its selection throws.</returns>
+    /// <param name="walked">The load's record of the lists it has walked, which the rows of a list read only by walking are counted from; <see langword="null"/> walks such a list afresh for each read.</param>
+    /// <returns>The fields (<c>Attendees[].Name</c> becomes one per attendee, none for an empty list) with the paths they were resolved from; empty when the validator cannot be inspected or its selection throws.</returns>
     // A selection that throws (a mistyped ruleset name) answers with nothing rather than taking
     // the load down: the pass beside this one surfaces the exception through its own fault
     // policy, which is where a configuration error belongs.
-    private List<string> DeclaredFieldPaths(ValidationProfile profile, WalkedLists walked)
+    private (FieldIdentifier[] Fields, List<string> Paths) DeclaredFields(ValidationProfile profile, WalkedCollections? walked)
     {
-        var expanded = new List<string>();
         if (_validator is not IRuleInspectingValidator<TModel> inspector || !inspector.CanInspectRules)
         {
-            return expanded;
+            return ([], []);
         }
 
         IReadOnlySet<string> declared;
@@ -4848,65 +5131,62 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
         catch (Exception)
         {
-            return expanded;
+            return ([], []);
         }
 
-        foreach (var template in declared)
+        List<string> declaredPaths = [.. declared];
+        var (resolved, paths, _) = FieldsNamedBy(declaredPaths, walked, withEnds: false);
+        var fields = new FieldIdentifier[paths.Count];
+        for (var i = 0; i < fields.Length; i++)
         {
-            ExpandTemplate(template, expanded, walked);
+            fields[i] = resolved[i].ToFieldIdentifier(_model, paths[i]);
         }
 
-        return expanded;
+        return (fields, paths);
     }
 
-    /// <summary>Expands the first open index in <paramref name="template"/> against the model's rows and recurses for the rest, so <c>Teams[].Members[].Alias</c> yields one path per member of every team.</summary>
-    /// <param name="template">A declared path, with <c>[]</c> at each collection.</param>
-    /// <param name="into">Receives one path per row, or the template itself when it has no open index.</param>
-    /// <param name="walked">The load's record of the lists it has walked; <see langword="null"/> outside a load.</param>
-    private void ExpandTemplate(string template, List<string> into, WalkedLists? walked)
+    /// <summary>The element counts of the collections at <paramref name="paths"/>, their paths resolved in one call.</summary>
+    /// <param name="paths">The collections' paths, each distinct.</param>
+    /// <param name="walked">The record of the lists the read in hand has walked; <see langword="null"/> walks such a list afresh for each read.</param>
+    /// <returns>Each collection's count, in the order of <paramref name="paths"/>, as <see cref="CollectionCount"/> gives it.</returns>
+    private int[] CollectionCounts(List<string> paths, WalkedCollections? walked)
     {
-        var open = template.IndexOf("[]", StringComparison.Ordinal);
-        if (open < 0)
+        var resolved = ResolveAll(paths);
+        var counts = new int[paths.Count];
+        for (var i = 0; i < counts.Length; i++)
         {
-            into.Add(template);
-            return;
+            counts[i] = CollectionCount(resolved[i], paths[i], walked);
         }
 
-        var head = template[..open];
-        var tail = template[(open + 2)..];
-        var rows = CollectionCount(head, walked);
-
-        for (var index = 0; index < rows; index++)
-        {
-            ExpandTemplate($"{head}[{index}]{tail}", into, walked);
-        }
+        return counts;
     }
 
-    /// <summary>The element count of the collection at <paramref name="path"/>.</summary>
-    /// <param name="path">The collection's path.</param>
-    /// <param name="walked">The load's record of the lists it has walked; <see langword="null"/> outside a load.</param>
+    /// <summary>The element count of the collection a path resolved to.</summary>
+    /// <param name="resolved">The collection's path, resolved.</param>
+    /// <param name="path">The collection's path, which tells a list met again from a new one.</param>
+    /// <param name="walked">The record of the lists the read in hand has walked; <see langword="null"/> walks such a list afresh.</param>
     /// <returns>The count; zero when the path resolves to nothing, to a non-collection, to an empty collection or to a collection that refuses the walk, which all mean no rows to expand into.</returns>
     // A collection that is itself an element (a row of a list of lists: Matrix[0], as Matrix[][]
     // expands) is read from its list through the load's element read, under the test
     // ToFieldIdentifier's list branch makes, because the introspector reads members and never
     // elements. Read as a member, such a row counts no cells, so its cells get no required mark
     // and a load confirms none of them. Anything else is a member, a collection a struct holds
-    // included. In a load, a list read only by walking is counted from the load's walk of it,
-    // which the reads of its rows then share; one that refused that walk partway is counted by a
-    // walk of its own, which meets the same refusal. A collection that refuses the walk (a
-    // consumer's own list over a source it reads once) counts zero, the rows before the refusal
-    // included, as one that cannot be read at all does. The refusal stays with that collection:
-    // the required marks, a load and a submit's "checking" all expand through here, and each
-    // keeps every other declared path.
-    private int CollectionCount(string path, WalkedLists? walked)
+    // included. A list read only by walking, met again from the same place as the same instance,
+    // is counted from the read's walk of it, which the reads of its rows then share; one that
+    // refused that walk partway, or that its place builds afresh on each read, is counted by a walk
+    // of its own, which meets the same refusal. A collection that refuses the walk (a consumer's own
+    // list over a source it reads once) counts zero, the rows before the refusal included, as one
+    // that cannot be read at all does. The refusal stays with that collection: the required marks,
+    // a load and a submit's "checking" all expand through here, and each keeps every other
+    // declared path.
+    private int CollectionCount(ResolvedField resolved, string path, WalkedCollections? walked)
     {
-        var resolved = _introspector.Resolve(_model, path);
         object? value;
         if (ResolvedFieldExtensions.IsIndexedList(resolved.Owner)
             && resolved.PropertyName is ['[', .., ']'] token
             && ResolvedFieldExtensions.TryParseIndex(token.AsSpan(1, token.Length - 2), out var index))
         {
-            if (!TryReadElement(resolved.Owner, index, walked, out value))
+            if (!TryReadElement(resolved.Owner, index, walked, ListPlace(path), out value))
             {
                 return 0;
             }
@@ -4923,7 +5203,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             case System.Collections.IEnumerable list
                 when walked is not null
                     && ResolvedFieldExtensions.IsIndexedList(list)
-                    && walked.TryCount(list, out var walkedCount):
+                    && walked.TryCount(list, path, out var walkedCount):
                 return walkedCount;
             case System.Collections.IEnumerable sequence:
                 try
@@ -5418,8 +5698,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // submit stay quiet until the next submit because no ledger watches them — and
                 // the gate needs nothing here to survive, because it was never an entry a rebuild
                 // could drop.
-                _submitVerdictErrors = GroupByResolvedField(report.Errors);
-                _submitVerdictAdvisories = GroupByResolvedField(report.Advisories);
+                var (errors, advisories) = ResolveEach(report);
+                _submitVerdictErrors = GroupByResolvedField(errors);
+                _submitVerdictAdvisories = GroupByResolvedField(advisories);
                 RecordSubmitAnswer(beganAtEditStamp);
             }).ConfigureAwait(false);
     }
@@ -5555,87 +5836,4 @@ internal sealed class DisplacedChecks
 
     /// <summary>Whether the submit or load that began cancelled a live check that runs the submit profile, which was on its way to answering <c>IsFormValid</c>.</summary>
     public bool LiveAnswerCancelled { get; set; }
-}
-
-/// <summary>The lists one load reads only by walking them, each walked on its first read and kept for the rest of that load's reads.</summary>
-// A list known only by its generic interface is read by walking it (FormidableEngine's
-// TryReadElement), and a load reads every row it names, so a walk per read grows with the square
-// of the row count. Keyed by the instance, never by equality: two equal lists are two objects,
-// each walked on its own. A walk the list refuses partway keeps the elements before the refusal,
-// which a walk of their own reads, and a read from the refusal on fails, as a walk to it would.
-internal sealed class WalkedLists
-{
-    private readonly Dictionary<object, Walk> _walks = new(ReferenceEqualityComparer.Instance);
-
-    /// <summary>Reads the element at <paramref name="index"/> of <paramref name="list"/>, walking the list on its first read.</summary>
-    /// <param name="list">A list read only by walking it.</param>
-    /// <param name="index">The element's index.</param>
-    /// <param name="value">The element read; <see langword="null"/> when it cannot be read.</param>
-    /// <returns><see langword="true"/> when the element was read; <see langword="false"/> past the end, or from the position where the list refused the walk.</returns>
-    public bool TryRead(System.Collections.IEnumerable list, int index, out object? value)
-    {
-        var elements = WalkOf(list).Elements;
-        if (index < elements.Count)
-        {
-            value = elements[index];
-            return true;
-        }
-
-        value = null;
-        return false;
-    }
-
-    /// <summary>Counts the elements of <paramref name="list"/>, walking the list on its first read.</summary>
-    /// <param name="list">A list read only by walking it.</param>
-    /// <param name="count">The element count when the walk reached the end; otherwise the number of elements before the refusal.</param>
-    /// <returns><see langword="true"/> when the walk reached the end; <see langword="false"/> when the list refused it partway.</returns>
-    public bool TryCount(System.Collections.IEnumerable list, out int count)
-    {
-        var walk = WalkOf(list);
-        count = walk.Elements.Count;
-        return walk.Complete;
-    }
-
-    /// <summary>The walk of <paramref name="list"/>, made on the first ask.</summary>
-    /// <param name="list">A list read only by walking it.</param>
-    /// <returns>The walk.</returns>
-    private Walk WalkOf(System.Collections.IEnumerable list)
-    {
-        if (!_walks.TryGetValue(list, out var walk))
-        {
-            walk = Walk.Of(list);
-            _walks.Add(list, walk);
-        }
-
-        return walk;
-    }
-
-    /// <summary>One walk of a list: the elements it reached, and whether it reached the end.</summary>
-    /// <param name="Elements">The elements, in the order the walk reached them.</param>
-    /// <param name="Complete">Whether the walk reached the end rather than meeting a refusal.</param>
-    private sealed record Walk(List<object?> Elements, bool Complete)
-    {
-        /// <summary>Walks <paramref name="list"/> to its end or to its first refusal.</summary>
-        /// <param name="list">The list.</param>
-        /// <returns>The walk.</returns>
-        public static Walk Of(System.Collections.IEnumerable list)
-        {
-            var elements = new List<object?>();
-            try
-            {
-                foreach (var element in list)
-                {
-                    elements.Add(element);
-                }
-
-                return new Walk(elements, Complete: true);
-            }
-            catch
-            {
-                // A list that refuses the walk (a consumer's own list) leaves its rows from the
-                // refusal on unread, which claims nothing, as for a member whose getter throws.
-                return new Walk(elements, Complete: false);
-            }
-        }
-    }
 }

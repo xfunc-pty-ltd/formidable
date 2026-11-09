@@ -40,7 +40,7 @@ public class SubmitCoverageTrackerTests
             Tracker = new SubmitCoverageTracker(
                 Store,
                 () => OnItsWay,
-                issue => new FieldIdentifier(Owner, issue.Path));
+                issues => [.. issues.Select(issue => new FieldIdentifier(Owner, issue.Path))]);
         }
 
         public Func<ValidationProfile, IReadOnlyList<RuleIdentity>> SelectRules => _ => _rules;

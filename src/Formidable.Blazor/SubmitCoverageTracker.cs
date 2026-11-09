@@ -15,15 +15,15 @@ namespace Formidable.Blazor;
 /// </remarks>
 /// <param name="store">The verdict store the rule walk plans against, through <see cref="SetVerdictStore.Plan"/> alone.</param>
 /// <param name="reAnswerOnItsWay">Whether a re-answer of the submit-selected coverage is demonstrably on its way: the engine's <see cref="FormidableEngine{TModel}.ReAnswerOnItsWay"/>, which reads scheduler state the tracker never holds.</param>
-/// <param name="resolve">Resolves an issue to the field it lands on: the engine's own resolution, so a coverage error lands on the field its issue does.</param>
+/// <param name="resolveAll">Resolves issues to the fields they land on, all in one call: the engine's own resolution, so a coverage error lands on the field its issue does.</param>
 internal sealed class SubmitCoverageTracker(
     SetVerdictStore store,
     Func<bool> reAnswerOnItsWay,
-    Func<ValidationIssue, FieldIdentifier> resolve)
+    Func<IReadOnlyList<ValidationIssue>, FieldIdentifier[]> resolveAll)
 {
     private readonly SetVerdictStore _store = store;
     private readonly Func<bool> _reAnswerOnItsWay = reAnswerOnItsWay;
-    private readonly Func<ValidationIssue, FieldIdentifier> _resolve = resolve;
+    private readonly Func<IReadOnlyList<ValidationIssue>, FieldIdentifier[]> _resolveAll = resolveAll;
 
     // Moves whenever a source the submit-coverage read derives from moves — a pass ending
     // however it ends (see EndPass), a probe landing, the rendered-field-set clear — so the
@@ -339,15 +339,23 @@ internal sealed class SubmitCoverageTracker(
                 return;
             }
 
+            // Every stored error is resolved in one call, through the engine's resolution
+            // (FormidableEngine.ResolveAll says what that call shares).
+            List<ValidationIssue>? errors = null;
             foreach (var stored in plan.Reused)
             {
                 foreach (var issue in stored.Issues)
                 {
                     if (issue.Severity == ValidationSeverity.Error)
                     {
-                        (errorFields ??= []).Add(_resolve(issue));
+                        (errors ??= []).Add(issue);
                     }
                 }
+            }
+
+            if (errors is not null)
+            {
+                errorFields = [.. _resolveAll(errors)];
             }
         }
         catch (Exception)

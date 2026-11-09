@@ -211,6 +211,21 @@ rows from that walk. A list whose walk throws partway is walked again by the cou
 throws there counts no rows, so the list's templates expand to nothing and the load lands for every
 other field. A walk per row would make that reading grow with the square of the row count.
 
+That walk stays open across the load's reads, so a getter read in between can change the list
+under it, and a version-checked list then throws at the walk's next step. Each row from the throw
+on is then read by a walk of its own, which reads the changed list as a read of that row alone
+does. A list that refuses every walk refuses that one too.
+
+Two kinds of list get no shared walk. A getter that returns a new object known only by
+`IReadOnlyList<T>` on each read hands each read a new list, so each row read walks to that row.
+
+A list whose every walk throws as it is closed refuses every read of a single row. The load then
+reads again: that list a row at a time, claiming none of its rows, and every other list from a
+walk of its own.
+
+A list that throws only when a walk is closed before its end goes unnoticed when the load's walk of
+it reaches the end, as its count's does, and the load claims the rows that walk read.
+
 The element's declared type is the array's element type, or the type argument of the `List<T>` or
 `Collection<T>` the list is or derives from. For a list known only by its generic interface it is
 that interface's type argument, taken from the read [`IsIndexedList`](#the-walk) already made.
@@ -1606,12 +1621,16 @@ returns.
 ### The walk
 
 Every path the engine turns into a field, a validator's reported `PropertyName` and a server
-reply's issue path alike, goes through the registered `IModelIntrospector`'s `Resolve`
-(`FormidableEngine<TModel>.ResolvePath` is where a path becomes an identifier). The seam is
-swappable: `AddFormidable()` registers `ReflectionModelIntrospector` only when nothing else is, and
-that default is what this section describes. `PropertyPath.TryParse` cuts the path into segments,
-property names and indexer tokens (`Teams[0].Members[1].Alias` is five: `Teams`, `[0]`, `Members`,
-`[1]`, `Alias`).
+reply's issue path alike, goes through the registered `IModelIntrospector`
+(`FormidableEngine<TModel>.ResolveAll` makes the call, and `ToFieldIdentifier` turns each answer
+into an identifier). The engine hands it a whole read at once, such as every issue of a report or
+every path a profile declares, in one `ResolveAll` call.
+
+`ResolveAll`'s default calls `Resolve` once per path, so an introspector written against `Resolve`
+alone answers as before. The seam is swappable: `AddFormidable()` registers
+`ReflectionModelIntrospector` only when nothing else is, and that default is what this section
+describes. `PropertyPath.TryParse` cuts the path into segments, property names and indexer tokens
+(`Teams[0].Members[1].Alias` is five: `Teams`, `[0]`, `Members`, `[1]`, `Alias`).
 
 A path the grammar rejects resolves to the root model with the whole path as the member name, and
 an empty path is the model-level field: the root model with an empty member name.
@@ -1634,9 +1653,53 @@ FluentValidation numbers a collection's rows in the order it enumerates them, so
 the row a failure at that index describes. A position past the end, or a walk that throws partway,
 stops at the collection.
 
-Each resolution walks from the start, so resolving every row of such a collection costs a walk per
-row. A sequence of characters is never walked: a string is read through its own indexer, and a
+A single `Resolve` walks from the start to the row and closes the walk. `ResolveAll` shares one walk
+among the paths that reach the same collection instance, taken only as far as the furthest row
+asked, so a report naming every row costs one walk, not one per row. Either way a walk that throws
+partway reaches the rows before the refusal.
+
+A member that builds a new collection on each read (a getter returning `_rows.Where(...)`) hands
+each path a collection of its own, so `ResolveAll` walks each to its row, as `Resolve` does, at the
+steps one path at a time takes.
+
+A collection's place is the path that reached it (`Rows`, `Teams[3].Members`). A place's first
+collection keeps its walk open until the walk ends, the place hands back another, or the call ends.
+So a getter read from one place holds one walk at a time, while a member built afresh per row
+(`Teams[i].Members`) and read once per row holds one per row.
+
+A collection whose every walk throws as it is closed refuses every row under `Resolve`, so
+`ResolveAll` answers again, one at a time, the paths that read it (each walking the collections
+above it afresh), and every other path keeps its answer.
+
+A walk refused partway has the paths it refused answered again the same way: those that asked for
+a row at or after the refusal. The shared walk stays open across paths, so a getter read in between
+can change the collection under it. A `HashSet<T>` then throws at the walk's next step, where
+`Resolve` walks the changed set afresh.
+
+The rows a refused walk read before the refusal keep their answers, which a collection that refuses
+every later walk would lose if they were read again.
+
+A collection that throws only when a walk is closed before its end goes unnoticed when the call
+walks it to the end (a path past its last row does), so those paths keep rows `Resolve` would
+refuse.
+
+An iterator whose `finally` block throws goes unnoticed the same way. The shared walk meets the
+throw inside its last step, after the last row, so only the paths past it are answered again.
+
+A getter that changes a walked collection without making the walk throw (a `SortedSet<T>` gaining a
+row ahead of those read) goes unnoticed as well: the paths after it keep the rows the walk read,
+where `Resolve` reads the changed collection.
+
+A sequence of characters is never walked: a string is read through its own indexer, and a
 character owns no member a path could name.
+
+Expanding a profile's declared paths follows the same rule. A template expands a level at a time:
+each collection the paths open at that level is resolved in one call and counted once, and the
+expanded paths are then resolved together.
+
+The required marks, a submit's pending scope and a load each walk such a collection a fixed number
+of times, whatever its row count, unless its member builds it afresh on each read, or it, or a
+collection reached through its rows, throws as its walk is closed.
 
 The terminal segment never navigates: it names the field on whatever object the walk reached.
 Nested and indexed segments mix freely: every non-terminal segment is one `Navigate` call,
