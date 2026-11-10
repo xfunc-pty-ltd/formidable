@@ -12,7 +12,10 @@ namespace Formidable.Blazor;
 /// <remarks>
 /// It renders no <c>&lt;form&gt;</c> and resolves no field order, so a summary beside it lists
 /// issues in the engine's order rather than the page's. Replacing the cascaded
-/// <see cref="EditContext"/> rebuilds the engine.
+/// <see cref="EditContext"/> rebuilds the engine. Its <c>net11.0</c> build also answers the
+/// <see cref="EditContext"/>'s <c>ValidateAsync()</c> with its own submit, so the
+/// <see cref="EditForm"/>'s <c>OnValidSubmit</c> and <c>OnInvalidSubmit</c> follow that submit's
+/// answer.
 /// </remarks>
 public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     where TModel : class
@@ -78,7 +81,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     // the declaration, not any use of it. The attach-mode sample puts the rename on this element.
     public RenderFragment<FormidableFormContext>? ChildContent { get; set; }
 
-    /// <summary>Whether a submit blocked through <see cref="ValidateForSubmitAsync"/> moves focus to the first error, in the engine's order. Defaults to <see langword="true"/>.</summary>
+    /// <summary>Whether a submit blocked through <see cref="ValidateForSubmitAsync"/>, or in the <c>net11.0</c> build through the <see cref="EditContext"/>'s <c>ValidateAsync()</c>, moves focus to the first error, in the engine's order. Defaults to <see langword="true"/>.</summary>
     [Parameter]
     public bool FocusFirstErrorOnInvalidSubmit { get; set; } = true;
 
@@ -101,6 +104,8 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// state change that starts the close. It runs once per move, ahead of the first attempt, and
     /// only for a move that is about to happen. Applying server issues here moves no focus, so a
     /// throw surfaces from <see cref="ValidateForSubmitAsync"/> or <see cref="FocusFirstErrorAsync"/>.
+    /// From the move the <c>net11.0</c> build makes after the <see cref="EditContext"/>'s
+    /// <c>ValidateAsync()</c>, it reaches the nearest error boundary.
     /// </remarks>
     [Parameter]
     // A Func rather than an EventCallback, for the reason FormidableForm's parameter of the same
@@ -162,6 +167,9 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
             _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
             Reconciler.Reset();
             _engine.Registry.Changed += Reconciler.OnRegistryChanged;
+#if NET11_0_OR_GREATER
+            CascadedEditContext.OnValidationRequested += JoinValidationRequest;
+#endif
         }
         else
         {
@@ -290,6 +298,187 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
 
         return outcome;
     }
+
+#if NET11_0_OR_GREATER
+    /// <summary>Answers the <see cref="EditContext"/>'s validation request with this component's submit, so the <see cref="EditForm"/> around it chooses its callback on that submit's answer.</summary>
+    /// <param name="sender">The <see cref="EditContext"/> that raised the request.</param>
+    /// <param name="args">The request; asynchronous work can be added to it only when it comes from <c>ValidateAsync</c>.</param>
+    // EditForm awaits EditContext.ValidateAsync() before it calls OnValidSubmit or OnInvalidSubmit,
+    // and a page may call it too. Blazor raises the same event for the obsolete synchronous
+    // Validate(), whose request gives no public sign of being synchronous: AddAsyncValidator throws
+    // InvalidOperationException on it, and that refusal is the sign. The try holds that one call,
+    // and the delegate it takes is an async method, so nothing the submit throws can surface
+    // inside the try; the filter takes the exact type, so ObjectDisposedException and every other
+    // subclass still escape. Nothing is registered for a synchronous request, so Validate() reads
+    // the messages as it did before this component answered anything.
+    private void JoinValidationRequest(object? sender, ValidationRequestedEventArgs args)
+    {
+        if (_engine is not { } engine)
+        {
+            return;
+        }
+
+        try
+        {
+            args.AddAsyncValidator(cancellationToken => JoinSubmitAsync(engine, cancellationToken));
+        }
+        catch (InvalidOperationException refusal) when (refusal.GetType() == typeof(InvalidOperationException))
+        {
+        }
+    }
+
+    /// <summary>Runs the submit <see cref="ValidateForSubmitAsync"/> runs, starts the focus move it makes for one that blocks, and fails its own task unless that submit may proceed, so the <see cref="EditForm"/> blocks.</summary>
+    /// <param name="engine">The engine this component held when the request arrived.</param>
+    /// <param name="cancellationToken">The caller's token, which ends the wait but not the submit.</param>
+    /// <returns>A task that completes when the submit may proceed or the caller cancels its wait, and fails otherwise.</returns>
+    // ValidateAsync answers true only when no task it awaited failed and the EditContext then holds
+    // no message, and it reads those messages after every task it awaits has ended. So the messages
+    // alone cannot carry a blocked answer. An edit made while another task on the same request
+    // still runs can clear them; a submit a newer submit or a load took the place of, or one an
+    // edit outdated during each of its checks, writes none; and a handler can clear a rule
+    // failure's message. Failing the task for every outcome that may not proceed (a blocked one,
+    // and one whose engine this component let go, whatever that engine showed) makes
+    // ValidateAsync false for all of them. CanProceed is true only for a submit that landed. Blazor
+    // logs nothing for a failed task, and records it in the form-level IsValidationFaulted(). An
+    // exception from the submit goes where it goes through OnSubmit, the nearest boundary, before
+    // the task fails. Being async, the method never throws before Blazor holds its task: a throw
+    // there would escape EditForm's submit handler and end the circuit.
+    private async Task JoinSubmitAsync(FormidableEngine<TModel> engine, CancellationToken cancellationToken)
+    {
+        SubmitOutcome? outcome;
+        try
+        {
+            var submit = RootSubmit.RunAsync(engine, () => _engine);
+
+            // Read once the submit's check has begun, so any later count is a newer submit's. That
+            // newer submit decides, as under FormidableForm: it moves focus if it blocks, and
+            // nothing should move if it passed. A load is not a submit, so a submit a load took the
+            // place of still moves focus, to the first error the form then shows.
+            var checksBegun = engine.SubmitChecksBegun;
+            outcome = await submit.WaitAsync(cancellationToken);
+
+            // No move on a renderer that says it is static: a form posted on a static render, or in
+            // the prerender of a page that names its form, runs this request where no script can
+            // run, and the blocked answer stands rather than handing the boundary an error for a
+            // move that cannot happen. The move is not awaited here: it waits for Blazor's
+            // form-level flag to go down, which this request lowers only once this task has ended.
+            if (outcome is { CanProceed: false }
+                && FocusFirstErrorOnInvalidSubmit
+                && engine.SubmitChecksBegun == checksBegun
+                && !RendererDeclaresItselfStatic())
+            {
+                _ = MoveFocusOnceValidatedAsync(engine, checksBegun);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // ValidateAsync throws the caller's cancellation itself. The submit runs on and shows
+            // what it finds, as one the page stopped waiting for.
+            return;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            DispatchPostedFault(exception);
+            throw new BlockedSubmitException(exception);
+        }
+
+        // A null outcome is a submit whose engine this component no longer holds.
+        if (outcome is not { CanProceed: true })
+        {
+            throw new BlockedSubmitException(null);
+        }
+    }
+
+    /// <summary>Makes a blocked submit's focus move once the <see cref="EditContext"/>'s form-level <c>IsValidationPending()</c> reads <see langword="false"/>, unless a newer submit has begun or this component has let the engine go by then.</summary>
+    /// <param name="engine">The engine whose submit blocked.</param>
+    /// <param name="checksBegun">The engine's count of submit checks begun, read as that submit's check began.</param>
+    /// <returns>A task that never fails: an exception from the move goes to the nearest boundary.</returns>
+    // Blazor's form-level IsValidationPending() stays up until every task the request registered has
+    // ended, and a page may disable its inputs on it, the use .NET 11 documents. A move made before
+    // then aims at a control the lock still disables. Once the flag is down, the call that lowered it
+    // has returned within the same work item: EditForm has called its callback and rendered, or the
+    // page's own code has resumed. Blazor keeps one flag for every call, so with two calls running
+    // the first to end lowers it. An older call's move then stands down on the count below, and a
+    // newer call's move finds a lock bound to the flag already lifted.
+    private async Task MoveFocusOnceValidatedAsync(FormidableEngine<TModel> engine, int checksBegun)
+    {
+        try
+        {
+            await FormValidationEndedAsync(engine.EditContext);
+            if (_disposed || !ReferenceEquals(_engine, engine) || engine.SubmitChecksBegun != checksBegun)
+            {
+                return;
+            }
+
+            // A focus-service call that fails as a script call does (a lost connection, a script
+            // error) ends the move with nothing moved. What PrepareFocus or FocusFallback throws is
+            // the page's own failure, whatever its type, and reaches the boundary below.
+            await FirstErrorFocus.MoveAsync(Services, engine, FocusFallback, PrepareFocus, scriptFailureEndsMove: true);
+        }
+        catch (Exception exception)
+        {
+            DispatchPostedFault(exception);
+        }
+    }
+
+    /// <summary>Completes once the <see cref="EditContext"/>'s form-level <c>IsValidationPending()</c> reads <see langword="false"/>, and never inside the work item that called it.</summary>
+    /// <param name="editContext">The form's <see cref="EditContext"/>.</param>
+    /// <returns>A task that completes once no form-level validation is pending.</returns>
+    // The first step leaves the work item that ends this component's task, because the request
+    // raises the flag only after every registered task has started, and reads its messages and
+    // returns to its caller only after every one has ended: a look from inside that work item can
+    // see the flag down before it has even gone up. Blazor lowers the flag and then raises
+    // OnValidationStateChanged; the wait resumes off that notification's work item for the same
+    // reason. The wait is for the flag, not for one request: a newer request raises it again and the
+    // wait goes on, and an older request's end can lower it while a newer one still runs.
+    private static async Task FormValidationEndedAsync(EditContext editContext)
+    {
+        await Task.Yield();
+        while (editContext.IsValidationPending())
+        {
+            var lowered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void OnStateChanged(object? sender, ValidationStateChangedEventArgs args)
+            {
+                if (!editContext.IsValidationPending())
+                {
+                    lowered.TrySetResult();
+                }
+            }
+
+            editContext.OnValidationStateChanged += OnStateChanged;
+            try
+            {
+                await lowered.Task;
+            }
+            finally
+            {
+                editContext.OnValidationStateChanged -= OnStateChanged;
+            }
+        }
+    }
+
+    /// <summary>Whether the renderer says outright that it is not interactive; a renderer that cannot say counts as interactive.</summary>
+    /// <returns><see langword="true"/> only when <c>RendererInfo.IsInteractive</c> reads <see langword="false"/>.</returns>
+    // The same reading FormidableForm makes before it renders: bUnit's test renderer throws from
+    // RendererInfo unless a test declares one, and a renderer that declines to say has not said
+    // it is static.
+    private bool RendererDeclaresItselfStatic()
+    {
+        try
+        {
+            return !RendererInfo.IsInteractive;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>What a submit that may not proceed fails its validation task with; Blazor keeps it to itself and the <see cref="EditForm"/> blocks.</summary>
+    /// <param name="inner">The exception the submit threw, or <see langword="null"/> when it threw none.</param>
+    private sealed class BlockedSubmitException(Exception? inner)
+        : Exception("The submit this validation request started may not proceed, so the form blocks.", inner);
+#endif
 
     /// <summary>Moves focus to the first visible error, or to the first visible issue when no error shows, and reports whether an element took it.</summary>
     /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> when nothing moved, whether the form shows no issue, no <see cref="IFormidableFocusService"/> is registered, the field is out of reach, a newer focus move took over, the visitor pressed a key or pointer button while <see cref="FocusFallback"/> ran and focus ended on another control outside any closed shadow root (under the focus service <see cref="FormidableBlazorServiceCollectionExtensions.AddFormidableBlazor(Microsoft.Extensions.DependencyInjection.IServiceCollection)"/> registers), or this component has been disposed.</returns>
@@ -558,7 +747,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         }
     }
 
-    /// <summary>Unsubscribes from the engine's registry, clears the field and disposes the engine; a no-op with no engine, and shared by the <see cref="EditContext"/> swap and disposal.</summary>
+    /// <summary>Unsubscribes from the engine's registry, and in the <c>net11.0</c> build from its <see cref="EditContext"/>'s validation request, clears the field and disposes the engine; a no-op with no engine, and shared by the <see cref="EditContext"/> swap and disposal.</summary>
     private void TearDownEngine()
     {
         if (_engine is not { } engine)
@@ -567,6 +756,9 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         }
 
         engine.Registry.Changed -= Reconciler.OnRegistryChanged;
+#if NET11_0_OR_GREATER
+        engine.EditContext.OnValidationRequested -= JoinValidationRequest;
+#endif
 
         // Cleared before the disposal. Disposing cancels the engine's check, and with no
         // synchronization context (a WebAssembly host) a submit waiting on it resumes inside this

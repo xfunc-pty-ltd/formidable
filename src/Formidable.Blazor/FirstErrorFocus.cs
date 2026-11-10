@@ -39,6 +39,9 @@ internal static class FirstErrorFocus
 
         /// <summary>A newer move began while this one awaited <c>PrepareFocus</c>, its first attempt or <c>FocusFallback</c>, so this one made no further attempt.</summary>
         StoodDown,
+
+        /// <summary>The focus service's own call failed as a script call fails (<see cref="FormidableJsModule.IsInteropFailure"/>), so the move ended there; only a caller that asked for it gets this.</summary>
+        ScriptFailed,
     }
 
     /// <summary>Moves focus to the first visible error, or to the first visible issue when no error shows, and reports whether an element took it.</summary>
@@ -46,7 +49,8 @@ internal static class FirstErrorFocus
     /// <param name="engine">The engine whose visible issues the field is chosen from.</param>
     /// <param name="fallback">The root's <c>FocusFallback</c> parameter, or <see langword="null"/> when unwired.</param>
     /// <param name="prepare">The root's <c>PrepareFocus</c> parameter, or <see langword="null"/> when unwired.</param>
-    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> with no focus service registered, no visible issue, a miss no fallback recovered, or a newer move that took over.</returns>
+    /// <param name="scriptFailureEndsMove">Whether a failed focus-service call ends the move quietly, as <see cref="FocusMoveResult.ScriptFailed"/> says, rather than throwing; the callbacks' throws pass through either way.</param>
+    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> with no focus service registered, no visible issue, a miss no fallback recovered, a newer move that took over, or a failed focus-service call the caller asked to end the move.</returns>
     /// <remarks>
     /// "First" is the order <see cref="IFormidableEngine.GetVisibleIssues"/> reports. A miss with
     /// no <paramref name="fallback"/> wired writes the diagnostic <see cref="ReportFallbackMiss"/>
@@ -56,7 +60,8 @@ internal static class FirstErrorFocus
         IServiceProvider services,
         IFormidableEngine engine,
         Func<FieldIdentifier, ValueTask<bool>>? fallback,
-        Func<FieldIdentifier, ValueTask>? prepare)
+        Func<FieldIdentifier, ValueTask>? prepare,
+        bool scriptFailureEndsMove = false)
     {
         // The early returns sit above the prepare call, so nothing prepares for a move that is
         // not about to happen.
@@ -78,8 +83,9 @@ internal static class FirstErrorFocus
         }
 
         // A move that stood down for a newer one did not miss: the newer move is where the visitor
-        // is going, and a diagnostic would name a field nothing failed to reach.
-        var result = await TryFocusAsync(focusService, firstIssue.Field, prepare, fallback);
+        // is going, and a diagnostic would name a field nothing failed to reach. Nor did one whose
+        // script call failed: the element was never asked.
+        var result = await TryFocusAsync(focusService, firstIssue.Field, prepare, fallback, scriptFailureEndsMove);
         if (result == FocusMoveResult.Missed && fallback is null)
         {
             ReportFallbackMiss(services, firstIssue.Issue);
@@ -93,14 +99,16 @@ internal static class FirstErrorFocus
     /// <param name="field">The field to land on, chosen by the caller.</param>
     /// <param name="prepare">The page's <c>PrepareFocus</c> callback, or <see langword="null"/> when unwired; awaited once, before the first attempt.</param>
     /// <param name="fallback">The page's <c>FocusFallback</c> callback, or <see langword="null"/> when unwired; consulted once, after a miss.</param>
-    /// <returns><see cref="FocusMoveResult.Landed"/> when the first attempt or the retry landed; <see cref="FocusMoveResult.StoodDown"/> when a newer move began during either callback or the first attempt; otherwise <see cref="FocusMoveResult.Missed"/>.</returns>
+    /// <param name="scriptFailureEndsMove">Whether a failed focus-service call, the first attempt's or the retry's, ends the move as <see cref="FocusMoveResult.ScriptFailed"/> rather than throwing.</param>
+    /// <returns><see cref="FocusMoveResult.Landed"/> when the first attempt or the retry landed; <see cref="FocusMoveResult.StoodDown"/> when a newer move began during either callback or the first attempt; <see cref="FocusMoveResult.ScriptFailed"/> when asked for and a focus-service call failed; otherwise <see cref="FocusMoveResult.Missed"/>.</returns>
     // Written once for both callers: a page that wires one PrepareFocus or FocusFallback callback
     // to a root and to a summary at once gets one move out of both.
     internal static async ValueTask<FocusMoveResult> TryFocusAsync(
         IFormidableFocusService focusService,
         FieldIdentifier field,
         Func<FieldIdentifier, ValueTask>? prepare,
-        Func<FieldIdentifier, ValueTask<bool>>? fallback)
+        Func<FieldIdentifier, ValueTask<bool>>? fallback,
+        bool scriptFailureEndsMove = false)
     {
         // Counted before anything is awaited, so a move that starts while this one waits on a
         // callback is the newer one when this one looks again.
@@ -122,7 +130,19 @@ internal static class FirstErrorFocus
             }
         }
 
-        if (await focusService.FocusAsync(field))
+        // The catch holds the service's call alone, never the page's callbacks: a throw from those
+        // is the page's code failing, whatever its type, and goes wherever the caller sends it.
+        bool landed;
+        try
+        {
+            landed = await focusService.FocusAsync(field);
+        }
+        catch (Exception exception) when (scriptFailureEndsMove && FormidableJsModule.IsInteropFailure(exception))
+        {
+            return FocusMoveResult.ScriptFailed;
+        }
+
+        if (landed)
         {
             return FocusMoveResult.Landed;
         }
@@ -151,9 +171,17 @@ internal static class FirstErrorFocus
 
         // The shipped service tells its script this attempt is the retry, so focus the visitor
         // moved while the fallback ran stays put. Any other service gets a plain second attempt.
-        var landed = focusService is FormidableFocusService shipped
-            ? await shipped.RetryFocusAsync(field)
-            : await focusService.FocusAsync(field);
+        try
+        {
+            landed = focusService is FormidableFocusService shipped
+                ? await shipped.RetryFocusAsync(field)
+                : await focusService.FocusAsync(field);
+        }
+        catch (Exception exception) when (scriptFailureEndsMove && FormidableJsModule.IsInteropFailure(exception))
+        {
+            return FocusMoveResult.ScriptFailed;
+        }
+
         return landed ? FocusMoveResult.Landed : FocusMoveResult.Missed;
     }
 

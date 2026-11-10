@@ -296,6 +296,99 @@ The refusals are a profile that selects no rule, a ruleset name a `ProfiledValid
 registered, and a rule-level seam that cannot do what it claims. Each fails every time it is
 reached. A live or refresh pass has no caller, so it reports even a refusal as a fault.
 
+### How attach mode answers `EditForm`'s validation
+
+The migration guide and the component kit send you here. On .NET 11, `EditForm` awaits
+`EditContext.ValidateAsync()` before it picks `OnValidSubmit` or `OnInvalidSubmit`. That call
+raises `OnValidationRequested`, awaits every delegate a handler registered through
+`AddAsyncValidator`, and answers `true` only when the `ValidationMessageStore` holds nothing and no
+delegate's task faulted.
+
+In its `net11.0` build, `FormidableValidator` subscribes to that event as it builds its engine and
+unsubscribes in `TearDownEngine`, which a replaced `EditContext` and disposal both reach. The
+`net10.0` build has no subscription. `FormidableForm` needs none: its `EditForm` wires `OnSubmit`,
+so it never validates.
+
+For each request the handler registers one delegate, an `async` method that runs the submit
+`ValidateForSubmitAsync()` runs (`RootSubmit.RunAsync`). It starts that submit's focus move but does
+not await it (below). Being `async`, it throws nothing before `ValidateAsync` holds its task. A
+delegate that threw there would escape `EditForm`'s submit handler and end the circuit.
+
+A synchronous `Validate()` raises the same event, and its only public sign is that
+`AddAsyncValidator` throws `InvalidOperationException` for it. The handler catches exactly that
+type around that one call and registers nothing, so `Validate()` reads the message store as before.
+
+Unless the caller cancels its wait, the delegate's task completes only for an outcome whose
+`CanProceed` is true, which only a landed submit carries. For every other outcome it faults, so
+`ValidateAsync` answers `false` and `EditForm` chooses `OnInvalidSubmit`, whatever the message store
+holds when it is read. The store alone cannot carry a blocked answer, because `ValidateAsync` reads
+it after the delegate ends:
+
+- A landed block's errors can clear while another delegate on the same request still runs,
+  through the live pass an edit starts.
+- A submit superseded by a newer submit or a load writes no answer, and so does one outdated
+  through all three checks whose last answer passed.
+- A rule's fault files its message, and a `ValidationFaulted` handler that applies a server reply
+  clears it.
+- When the root lets go of the engine before the outcome is read (a replaced `EditContext`, a
+  disposal), `RootSubmit.RunAsync` returns null, whatever that engine showed.
+
+Blazor logs nothing for a faulted delegate and shows no error UI, but it records the fault.
+`ValidateAsync` writes `EditContext.IsValidationFaulted()` as it ends, `true` when any delegate
+faulted, so it reads `true` after any join that may not proceed, unless the caller cancelled the
+call. The field-level
+`IsValidationFaulted(field)` stays `false`, since the delegate is registered for the form, so no
+field's state reads it.
+
+A form a second press saved reads `true` too, because the first press's call ends after the
+second's. `ValidateAsync` skips the write when the caller's token is cancelled
+(`ThrowIfCancellationRequested` comes first), whatever the delegate did, so a cancelled call leaves
+the flag as it was. The obsolete `Validate()` writes `false` after raising its request.
+
+Blazor cancels nothing when a second press starts a second `ValidateAsync`, and each press gets its
+own callback, in the order the two settle. So the overtaken submit's faulted task is what turns its
+callback into `OnInvalidSubmit`.
+
+The join's move waits for Blazor's form-level `IsValidationPending()` to read `false`
+(`MoveFocusOnceValidatedAsync`). The flag stays up until every delegate on the request has ended,
+and .NET 11 documents disabling inputs on it, so a move made inside the delegate aims at a disabled
+control.
+
+With one call running, the call that lowered the flag has read the message store and returned by the
+time the move runs: `EditForm` has called its callback and rendered, or a page's own call has
+resumed the page's code.
+
+The move first leaves the work item that ends the delegate, because the flag goes up only after
+every delegate has started: a look from inside that work item can find it down before it was ever
+raised. While the flag reads `true` the move waits on `OnValidationStateChanged`, and resumes off
+that notification's work item.
+
+Blazor keeps one flag for every call on the `EditContext`, and each call's end lowers it, so with
+two calls running the first to end lowers it while the second still runs. An older call's move then
+stands down on the count read again as it starts (below).
+
+A newer call's move can run before that call's callback, when another delegate still holds the call
+open. A lock bound to the flag has lifted by then too, so the move still finds its field enabled.
+
+Focus follows `ValidateForSubmitAsync()`, except that no move is made once a newer submit's check
+has begun (`SubmitChecksBegun` moved), as `FormidableForm` does. A load does not move that count,
+so a submit a load superseded moves focus to the first error then showing.
+
+Nor is a move made on a renderer that declares itself static (`RendererInfo.IsInteractive` false),
+which is where a form posted on a static render, or in a prerender, runs the request. A move whose
+script call fails (`IsInteropFailure`) moves nothing. Either way the blocked answer stands and
+nothing reaches the boundary.
+
+One answer is stricter than `CanProceed`. A server reply applied while a passing submit checks
+stands (`SupersedesServerAnswer` keeps it for a submit begun before it). The outcome may proceed
+while the message store holds the reply's errors, so `EditForm` chooses `OnInvalidSubmit`.
+
+An exception from the submit (a profile Formidable refuses, say) goes to `DispatchPostedFault`
+before the task faults, so it reaches the boundary as it would through `OnSubmit`. One from the
+join's move goes there too, and no call of the page's throws it. A cancellation of the caller's
+token ends the delegate's wait and nothing else: `ValidateAsync` throws the cancellation, and the
+submit runs on.
+
 ## The verdict store
 
 On a validator the engine can take rule by rule ([the next section](#rule-level-versus-whole-profile-execution)
@@ -1570,6 +1663,11 @@ A move that finds the counter moved on stands down. It looks after `PrepareFocus
 attempt that missed, and after the fallback answers, so a move overtaken while its first attempt
 was out never calls the fallback. Its result is `StoodDown` rather than `Missed`, so `MoveAsync`
 writes no miss diagnostic for it.
+
+A caller can ask for one more result. Under `scriptFailureEndsMove`, a focus-service call that fails
+as a script call does (`IsInteropFailure`), the first attempt's or the retry's, ends the move as
+`ScriptFailed`, with no diagnostic. Only the join asks for it
+([How attach mode answers `EditForm`'s validation](#how-attach-mode-answers-editforms-validation)).
 
 The visitor can cancel it too. The shipped `FormidableFocusService` has a retry of its own,
 `RetryFocusAsync`, which calls `focusField(id, scrollId, true)`; the move finds it by testing for that

@@ -120,20 +120,33 @@ on the old one implicitly.
   goes on speaking whether or not anything registered it, unless `FormidableOptions.LiveDisclosure`
   opts it into the same check.
 
-### Attach mode submits through `OnSubmit`, not `OnValidSubmit`
+### Which `EditForm` callback does attach mode submit through?
 
-Wire the `EditForm`'s `OnSubmit` to the handler that calls `ValidateForSubmitAsync()`, and drop
-`OnValidSubmit` and `OnInvalidSubmit`. Those two run `EditContext.Validate()` before choosing a
-handler, and nothing here answers it. The engine subscribes to `OnFieldChanged` alone, never to
-`OnValidationRequested`, so that call runs no rule and `OnValidSubmit` can fire with the model
-still wrong.
+Wire the `EditForm`'s `OnSubmit` to the handler that calls `ValidateForSubmitAsync()`. That route
+works on .NET 10 and .NET 11 alike, and it hands back the `SubmitOutcome`, so the handler can read
+why a submit blocked.
 
-`FormidableForm` wires `OnSubmit` on the `EditForm` it renders for the same reason. Its own
-`OnValidSubmit` and `OnInvalidSubmit` are parameters run once its submit has been checked, so under
-that root the two names stay, handed a `SubmitOutcome` and a `FormidableInvalidSubmitContext` in
-place of the `EditContext`.
+On .NET 10, drop `OnValidSubmit` and `OnInvalidSubmit`. Before choosing between them, `EditForm`
+calls `EditContext.Validate()`, and on .NET 10 `<FormidableValidator>` does not answer that call. So
+it runs no rule, and `OnValidSubmit` can fire with the model still wrong.
 
-Why: [how the engine works: what starts each check](how-the-engine-works.md#the-pass-kinds).
+On .NET 11 (an app that targets `net11.0`), the two callbacks work as well. Before choosing,
+`EditForm` awaits `EditContext.ValidateAsync()`. `<FormidableValidator>` answers that call with the
+submit `ValidateForSubmitAsync()` runs. So `OnValidSubmit` runs only when that submit may proceed,
+and a blocked submit moves focus as `ValidateForSubmitAsync()` does. A page's own `ValidateAsync()`
+call runs the same submit, which shows errors and moves focus too
+([Component kit](component-kit.md#what-does-the-editforms-own-validation-do-on-net-11)).
+
+So on .NET 11, an `OnValidSubmit` handler that calls `ValidateForSubmitAsync()` itself runs every
+rule a second time for the same press: the press has already run the submit before the handler
+starts. Wire that handler to `OnSubmit` to keep the `SubmitOutcome` it reads.
+
+`FormidableForm` wires `OnSubmit` on the `EditForm` it renders, on both versions, so its own submit
+decides. Its own `OnValidSubmit` and `OnInvalidSubmit` are parameters it runs once its submit has
+been checked. So under that root the two names stay, but they are handed a `SubmitOutcome` and a
+`FormidableInvalidSubmitContext` in place of the `EditContext`.
+
+Why: [how the engine works: how attach mode answers `EditForm`'s validation](how-the-engine-works.md#how-attach-mode-answers-editforms-validation).
 
 ### Attach mode leaves `novalidate` to you
 
@@ -210,16 +223,23 @@ A blocked submit then lands the visitor on the first error exactly as it does un
 [`PrepareFocus`](component-kit.md#preparefocus) hook awaited ahead of that move, and the same
 `FocusFallback` seam for an error whose element does not take focus.
 
+On .NET 11, a submit through the `EditForm`'s own `OnValidSubmit` and `OnInvalidSubmit` goes
+through the component as well, so a blocked one moves focus the same way.
+
 "First" here means first in the reading order above, not first down the page. Focus parity is not
 order parity, and the two are separate boundaries with separate causes. `FocusFirstErrorAsync()` is
 on the validator too, for a page that would rather choose the moment than have the submit choose it.
 
 A component nested inside the validator asks for the first-error move through the cascaded
 `FormidableFormContext`'s `FocusFirstErrorAsync()`, with no `@ref` to reach for (see
-[Component kit](component-kit.md#asking-for-the-first-error-move)). A page that opens a dialog on a
-blocked submit sets `FocusFirstErrorOnInvalidSubmit="false"` and calls `FocusFirstErrorAsync()` once
-the dialog has closed; there is no `OnInvalidSubmit` and no per-submit suppression on the validator
-(see [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form)).
+[Component kit](component-kit.md#asking-for-the-first-error-move)).
+
+A page that opens a dialog on a blocked submit sets `FocusFirstErrorOnInvalidSubmit="false"` and
+calls `FocusFirstErrorAsync()` once the dialog has closed. `<FormidableValidator>` has no
+`OnInvalidSubmit` parameter of its own, and no way to skip the move for one submit as
+`FormidableForm`'s `SuppressFirstErrorFocus()` does. So that switch is what stops its move,
+on .NET 11 as well (see
+[Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form)).
 
 The one move that stays quiet is the server round trip. The validator's `ApplyServerIssues` applies
 the verdict and focuses nothing, since the page owns both the `<form>` and whatever it does after a

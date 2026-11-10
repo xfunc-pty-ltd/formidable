@@ -561,9 +561,9 @@ Lock the inputs only where the save must not race a later edit, with
 stays uncommitted, so the form does not hear of it until the field's next blur. It locks text
 inputs and text areas only, never a checkbox, radio or select.
 
-In attach mode `context.IsSubmitting` reads `false`, because your own handler runs the submit. Keep
-a flag of your own there, set `FocusFirstErrorOnInvalidSubmit="false"` on `FormidableValidator`,
-and lower the flag and render before you call `FocusFirstErrorAsync()`.
+In attach mode `context.IsSubmitting` always reads `false`, on .NET 11 too. Keep a flag of your own
+there, set `FocusFirstErrorOnInvalidSubmit="false"` on `FormidableValidator`, and lower the flag and
+render before you call `FocusFirstErrorAsync()`.
 
 **Read more:**
 
@@ -828,9 +828,12 @@ clickable entries are in front of the overlay. The dialog sits inside the form, 
 `FormidableSummary` throws outside a root's cascade.
 
 **Suppressing the form's own move is not optional:** left alone, the form moves focus to the first
-error the moment the handler returns, and the caret lands in a field the overlay is covering. In
-attach mode the page owns the submit call, so set `FocusFirstErrorOnInvalidSubmit="false"` on
-`FormidableValidator` and call `FocusFirstErrorAsync()` once the dialog has closed.
+error the moment the handler returns, and the caret lands in a field the overlay is covering.
+
+In attach mode there is no `SuppressFirstErrorFocus()` to call, so set
+`FocusFirstErrorOnInvalidSubmit="false"` on `FormidableValidator` and call `FocusFirstErrorAsync()`
+once the dialog has closed. That switch stops the validator's move whether the page submits through
+`OnSubmit` or, on .NET 11, through the `EditForm`'s `OnInvalidSubmit`.
 
 **The dismissal has to finish before it reports back:** `PrepareFocus` is awaited, and a dialog is
 not gone on the state change that starts its close, so complete the callback on the dialog's own

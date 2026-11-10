@@ -55,11 +55,13 @@ public partial class AttachMode : IDisposable
     private string? SubmitterAriaRequired =>
         _validator?.Engine?.GetFieldRequirement(SubmitterField) == FieldRequirement.Required ? "true" : null;
 
-    // EditForm's own OnValidSubmit funnels through EditContext.Validate(), which nothing here
-    // subscribes to — attach mode leaves the page owning its submit handler. Calling the
-    // validator rather than the engine beneath it is what brings the rest of the submit story
-    // with it: a blocked submit lands the visitor on the first error, through the fallback below
-    // when that error has no element to land on.
+    // OnSubmit with ValidateForSubmitAsync() works on every .NET version this library builds for,
+    // and hands back the outcome. EditForm's own OnValidSubmit runs Formidable's rules only in an
+    // app that targets .NET 11, where the validator answers EditContext.ValidateAsync(); this
+    // sample targets .NET 10, where nothing does. Calling the validator rather than the engine
+    // beneath it is what brings the rest of the submit story with it: a blocked submit lands the
+    // visitor on the first error, through the fallback below when that error has no element to
+    // land on.
     private async Task HandleSubmit()
     {
         var outcome = await _validator!.ValidateForSubmitAsync();

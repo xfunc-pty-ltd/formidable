@@ -1090,8 +1090,8 @@ page's. [Migration guide](migration-guide.md) has when to reach for it.
 |---|---|---|---|
 | `Options` | `FormidableOptions?` | `null` (app-wide default, then `new FormidableOptions()`) | The [engine options](options.md) this component builds its engine with. A different instance arriving without a new `EditContext` throws, since the engine [reads `Options` once](options.md#formidableoptions-is-read-once). |
 | `Validator` | `IModelValidator<TModel>?` | `null` (from the container) | The validator this form validates through, whole ([Need to know](#need-to-know)). |
-| `ChildContent` | `RenderFragment<FormidableFormContext>?` | `null` | The content the cascade reaches, handed the `FormidableFormContext` as `context` (or as whatever a `Context="..."` renames it to, which the Razor compiler asks for on this element or on the `EditForm` around it). With none, the component renders nothing at all, cascade included, rather than an empty wrapper. The context's `IsSubmitting` always reads `false` here, because the page's own handler runs the submit and keeps the flag ([I want to lock the Submit button while the form submits](recipes.md#i-want-to-lock-the-submit-button-while-the-form-submits)). |
-| `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether a submit blocked through `ValidateForSubmitAsync()` moves focus itself. It never gates `FocusFirstErrorAsync()`, which is the page deciding. |
+| `ChildContent` | `RenderFragment<FormidableFormContext>?` | `null` | The content the cascade reaches, handed the `FormidableFormContext` as `context` (or as whatever a `Context="..."` renames it to, which the Razor compiler asks for on this element or on the `EditForm` around it). With none, the component renders nothing at all, cascade included, rather than an empty wrapper. The context's `IsSubmitting` always reads `false` here, so a page that locks its inputs keeps a flag of its own ([I want to lock the Submit button while the form submits](recipes.md#i-want-to-lock-the-submit-button-while-the-form-submits)). The reason is `ValidateForSubmitAsync()`: it moves focus before the page's handler resumes, and a lock bound to the engine's `IsSubmitting` would then still disable the field the move aims at. |
+| `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether a blocked submit moves focus itself, through `ValidateForSubmitAsync()` and, on .NET 11, through [the `EditForm`'s own validation](#what-does-the-editforms-own-validation-do-on-net-11). It never gates `FocusFirstErrorAsync()`, which is the page deciding. |
 | `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a move that missed: make the element reachable, return `true`, and it retries once ([when it does not](#focusfallback)). |
 | `PrepareFocus` | `Func<FieldIdentifier, ValueTask>?` | `null` | [Awaited before each move this component makes](#preparefocus), so the page can clear the way first. |
 
@@ -1113,7 +1113,7 @@ throws. Replacing that `EditContext` rebuilds the engine.
 
 | When | What you see |
 |---|---|
-| A submit through `ValidateForSubmitAsync()` blocks | Focus lands on the first error as under `FormidableForm`: same `FocusFirstErrorOnInvalidSubmit` switch, `PrepareFocus` awaited, `FocusFallback` threaded in. |
+| A submit blocks, through `ValidateForSubmitAsync()` or, on .NET 11, through the `EditForm`'s own validation | Focus lands on the first error as under `FormidableForm`: same `FocusFirstErrorOnInvalidSubmit` switch, `PrepareFocus` awaited, `FocusFallback` threaded in. |
 | That first error is the form's own message, because every failing field is hidden | The move aims at the form, which takes focus only where the page writes the model-level id and `tabindex="-1"` on its `EditForm` (the attribute table below). Without them the move misses, and a `FocusFallback` is handed the model-level field, whose `FieldName` is empty. |
 | A summary lists issues, or "first" is chosen | The engine's order, not the page's: nothing here resolves where the fields sit ([Migration guide](migration-guide.md#attach-mode-lists-issues-in-the-engines-order-not-the-pages)). |
 | The page gives [the guard that recovers a displaced click](#the-click-a-disclosure-displaces) neither of the two elements it looks for | That section's diagnostic, once per context: it stays until the cascaded `EditContext` is replaced. |
@@ -1182,6 +1182,71 @@ drops it, as the form does.
 
 An attribute `EditForm` does not recognise lands on the `<form>` it renders, which is how each of
 them gets there.
+
+### What does the `EditForm`'s own validation do on .NET 11?
+
+In an app that targets `net11.0`, this component answers the `EditContext`'s `ValidateAsync()` with
+its own submit, the one `ValidateForSubmitAsync()` runs. `EditForm` awaits that call before it
+chooses a callback, so `OnValidSubmit` runs only when the submit may proceed and `OnInvalidSubmit`
+runs when it blocks. On .NET 10 nothing answers the call, so wire `OnSubmit` there
+([Migration guide](migration-guide.md#which-editform-callback-does-attach-mode-submit-through)).
+
+A second press while the first submit still checks starts a second submit, and `EditForm` calls a
+callback for each. The first ends in `OnInvalidSubmit` without showing anything of its own, and
+only the second can move focus.
+
+A [load of values](#saying-what-loaded-values-have-earned) (a `DiscloseLoadedValuesAsync()` call)
+started while a submit checks also ends that submit in `OnInvalidSubmit`. A load is not a second
+submit, though, so focus still moves when that submit ends, to the first error showing at that
+moment. A load that has not answered by then moves no focus: its errors show when it answers, and
+nothing moves then.
+
+A value edited while a submit checks makes the submit check again, at most twice. A value edited
+during all three of those checks ends that submit in `OnInvalidSubmit` too. If its last check
+passed, nothing of its own shows; if that check found errors, they show as for any blocked submit.
+
+A server reply applied while the submit checks stays showing. The reply's errors make `EditForm`
+call `OnInvalidSubmit` even when the submit itself may proceed. No focus moves in that case.
+
+`EditContext.IsValidationFaulted()` is set as each `ValidateAsync()` call ends, unless its caller
+cancelled the call, and reads `true` when that call's submit could not proceed. So a form saved by a
+second press can read `true` once the first press's call ends. Fixing every field leaves it `true`
+until a later call sets it again.
+
+A cancelled call leaves the flag as it was, whatever its submit found. The obsolete `Validate()`
+sets it to `false`. The field-level `IsValidationFaulted(field)` stays `false`, so no input's state
+classes change.
+
+A page's own `ValidateAsync()` call (a Check button, a wizard step) runs the same submit and answers
+`false` unless it may proceed. [`NormalizeOnSubmit`](options.md#normalizeonsubmit), when set, calls
+the model's `Normalize()` before the submit checks it.
+
+Which errors show is decided by what is on screen, as at any submit: an error on a field nothing
+renders stays back, and when every failing field is off screen the form's own message shows
+instead. Warnings and infos show on the fields on screen too, and never make the call answer
+`false`.
+
+Focus moves under `FocusFirstErrorOnInvalidSubmit`, and the form counts as submitted, so each later
+edit re-checks the whole form. A check or a load already running gives way to the call.
+
+The move waits until the `EditContext`'s `IsValidationPending()` reads `false`. When only one call
+is running, the flag drops once that call has ended, any other validator's checks included. After a
+press the move then comes after `OnInvalidSubmit` has begun, and after a page's own
+`ValidateAsync()` call it comes once the call has returned. Inputs a page disables while the flag
+reads `true` are enabled again by then.
+
+Blazor keeps a single flag that every call shares. So on a second press, the first call's end
+lowers the flag while the second call still checks, and a lock bound to the flag lifts then.
+
+A caller that cancels its `ValidateAsync()` call gets the cancellation. The submit still runs to its
+end and shows its messages as any submit does. The obsolete synchronous `Validate()` cannot wait for
+a submit, so this component does nothing for it, and no rule runs.
+
+`OnSubmit` with `ValidateForSubmitAsync()` stays the route
+[`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) shows on both versions, because it
+hands back the `SubmitOutcome`. Do not call `ValidateForSubmitAsync()` from `OnValidSubmit` to get
+that outcome: on .NET 11 the press has already run the submit by then, so the call runs it again,
+every rule included.
 
 ## `FormidableCollectionMessage<TValue>`
 
@@ -1538,7 +1603,8 @@ depends on what asked for the move:
 
 | The move | Where a throw surfaces |
 |---|---|
-| A blocked submit, or the one a page asks for on either root or through the cascaded context | Out of that call: `SubmitAsync`, `ValidateForSubmitAsync` or `FocusFirstErrorAsync()`. |
+| A blocked submit through `SubmitAsync` or `ValidateForSubmitAsync`, or the move a page asks for on either root or through the cascaded context | Out of that call: `SubmitAsync`, `ValidateForSubmitAsync` or `FocusFirstErrorAsync()`. |
+| On .NET 11, a blocked submit through the `EditContext`'s `ValidateAsync()`, whether the `EditForm` made the call or the page did | The nearest `ErrorBoundary` around `FormidableValidator`. The move is not part of the `ValidateAsync()` call, whoever made it, so nothing throws to you. |
 | A summary entry's click | Out of the click. |
 | Any of `FormidableForm`'s `ApplyServerIssues` overloads | Nowhere. Applying server issues is synchronous by contract, so its move is fire-and-forget and the throw becomes an unobserved task exception. |
 
