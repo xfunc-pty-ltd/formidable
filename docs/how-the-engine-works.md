@@ -459,6 +459,11 @@ has what a reader sees; this section has the read behind it.
 - a field on a `KeyedCollection<TKey, TItem>` is named by digits alone, as a row bound by its
   position is, or names a property of the collection's type.
 
+In the .NET 11 build `FieldState.WouldPassSubmit` also needs no async check Blazor runs on the
+field to be still running or to have thrown
+([the state classes](#the-state-classes-how-formidablecss-computes-them)); the vouch itself reads
+only the six above.
+
 A dictionary's entry is never vouched for. FluentValidation names a failing entry by its position
 and Blazor names the input bound to it by its key, so no answer can be matched to the entry:
 [the walk](#the-walk) files a failure at `Answers[1]` under `[1]` on the dictionary, brackets kept,
@@ -1427,8 +1432,10 @@ Pending appends to whatever that left, or stands alone.
 That join happens in exactly one place for every caller. A kit input builds its `FieldState` from
 `IFormidableEngine.GetFieldState` (`FormidableInputBase<TValue>.CssClass` through `ComputeCssClass`,
 and `FormidableFieldContext.CssClass` on the renderless path), and `FormidableFieldCssClassProvider`
-builds its own for a native input, so the two surfaces cannot disagree on a tier. A kit input then
-merges the result behind any consumer-splatted `class` through `FormidableCss.CombineClassNames`;
+builds its own for a native input from the same engine reads. So the two surfaces disagree on a tier
+only where the provider's error read (below) sees another validator's error.
+
+A kit input then merges the result behind any consumer-splatted `class` through `FormidableCss.CombineClassNames`;
 the renderless context hands over the pure class, and a native input's merge is `InputBase`'s own.
 
 **The provider's reads.** `FormidableFieldCssClassProvider.GetFieldCssClass` reads `IsModified` and
@@ -1436,6 +1443,31 @@ the renderless context hands over the pure class, and a native input's merge is 
 `GetValidationMessages(field).Any()`), and `IsTouched`, `IsValidating`, `HasWarnings`, `HasInfos`
 and `WouldPassSubmit` from the engine. The engine-sourced reads go through the internal
 `IValidatingFieldReader`, which `FormidableEngine<TModel>` implements explicitly.
+
+The `EditContext`'s messages include any other validator's, so a `DataAnnotationsValidator`'s error
+marks a native input invalid; a kit input's `HasErrors` reads Formidable's own issues.
+
+**Blazor's own async state, in the .NET 11 build.** An async validator registered on the
+`EditContext` (an async DataAnnotations attribute, say) reports to the `EditContext`, not to the
+engine. `GetFieldState` and the reader share `FieldPending` and `FieldWouldPassSubmit`, which fold
+it in: `IsValidationPending(field)` makes the field pending and keeps it from `WouldPassSubmit`,
+and `IsValidationFaulted(field)` keeps it from `WouldPassSubmit` too.
+
+Every surface reads that one answer, so a kit input, `FormidableField` and a native input agree
+while Blazor's check runs, after it answers and after it throws.
+
+The engine subscribes to `OnValidationStateChanged`, which Blazor raises as such a check starts,
+ends, throws or is cancelled. `HandleValidationStateChanged` reads which of the engine's fields
+(the publish's key set, `ViewKeys`) Blazor reports pending and which faulted, and publishes when
+either set moved.
+
+So the kit's surfaces redraw as the check starts and ends, as a native input redraws on the
+notification itself. The `net10.0` build has none of this.
+
+The engine's own notifications move no Blazor state, and most publish nothing more. One that comes
+as the key set grows onto a field Blazor is checking (a reply's error on it, say) finds the pending
+set moved and publishes, and of that publish and the engine's own, the later names nothing. Each
+look also builds the key set afresh, as each publish's diff does.
 
 The provider probes for that interface once, at construction, with a single `as` check. Where the
 engine is any other `IFormidableEngine` (a test double), every engine-sourced read falls back to

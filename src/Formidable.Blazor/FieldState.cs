@@ -19,7 +19,7 @@ public readonly record struct FieldState
     /// <summary>Whether the <c>EditContext</c> reports the field as modified.</summary>
     public bool IsModified { get; init; }
 
-    /// <summary>Whether a running check marks the field as checking: a submit whose readable rules name it (any submit, when none can be read), or a live check or re-check including it, even one taking over its cancelled check.</summary>
+    /// <summary>Whether a check marks the field as checking: a submit whose readable rules name it (any, when none can be read), a live check or re-check including it or taking over its cancelled check, or Blazor's own, on .NET 11.</summary>
     /// <remarks>
     /// A re-check includes a field whose debounced check is still to come, and the fields edited
     /// since the last re-check, during a submit or after a submit or server reply answered. After
@@ -39,7 +39,7 @@ public readonly record struct FieldState
     /// <summary>Whether the field currently has an info-severity issue.</summary>
     public bool HasInfos { get; init; }
 
-    /// <summary>Whether a submit would not fail this field: every submit rule has a current answer and none reports an error for it. Defaults to <see langword="true"/>.</summary>
+    /// <summary>Whether a submit would not fail this field: every submit rule has a current answer, none reports an error for it, and on .NET 11 no async check of Blazor's on it is running or has thrown. Defaults to <see langword="true"/>.</summary>
     /// <remarks>
     /// <see cref="IFormidableEngine.IsFormValid"/> is the whole-form counterpart, kept current
     /// only under <see cref="FormidableOptions.TrackFormValidity"/>. A <c>default(FieldState)</c>

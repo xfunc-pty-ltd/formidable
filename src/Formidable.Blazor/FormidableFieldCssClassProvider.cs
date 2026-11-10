@@ -34,7 +34,12 @@ internal interface IValidatingFieldReader
     string? InlineMessageLive { get; }
 }
 
-/// <summary>Gives a native <c>InputBase</c> component the same state classes a kit input wears, through the <c>EditContext</c>, computed by <see cref="FormidableCss.Compute"/>; the shipped engine installs one on its <c>EditContext</c> as it is built.</summary>
+/// <summary>Gives a native <c>InputBase</c> component the state classes a kit input wears, computed by <see cref="FormidableCss.Compute"/>, and the invalid class for any error in the <c>EditContext</c>; the shipped engine installs one on its <c>EditContext</c> as it is built.</summary>
+// Pending and would-pass-submit come from the engine, which in the .NET 11 build folds Blazor's
+// own async checks into both (GetFieldState), so a kit input and a native input agree on them.
+// Errors come from the EditContext, so an error another validator writes there (a
+// DataAnnotationsValidator's) marks a native input invalid, where a kit input shows Formidable's
+// issues alone.
 public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 {
     private readonly IFormidableEngine _engine;
@@ -46,7 +51,8 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
     /// <remarks>
     /// The class names are always the engine's <see cref="FormidableOptions.CssClasses"/>; a
     /// different map is a provider of your own over <see cref="FormidableCss.Compute"/> and
-    /// <see cref="IFormidableEngine.GetFieldState"/>.
+    /// <see cref="IFormidableEngine.GetFieldState"/>, with <see cref="FieldState.HasErrors"/> set
+    /// from the <c>EditContext</c>'s messages for the field, as this one sets it.
     /// </remarks>
     // No overload takes a different class set: a form whose native inputs answered with names its
     // kit inputs did not would be reporting the same field state two ways.

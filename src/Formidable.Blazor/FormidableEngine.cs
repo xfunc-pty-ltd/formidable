@@ -211,6 +211,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // same guards, so it reuses what the probe filed. Arms nothing for the vouch while it waits.
     private bool _heldBackRecheckOwed;
 
+#if NET11_0_OR_GREATER
+    // The fields Blazor reported pending, and faulted, at the last validation-state notification:
+    // what HandleValidationStateChanged compares the next one against. Null while Blazor reports
+    // none.
+    private HashSet<FieldIdentifier>? _blazorPendingFields;
+    private HashSet<FieldIdentifier>? _blazorFaultedFields;
+#endif
+
     /// <summary>Whether the submit-error view shows the client's errors for <paramref name="field"/>: the error ledger holds it and the apply that revealed it held nothing back.</summary>
     /// <param name="field">The field.</param>
     /// <returns><see langword="true"/> when the field is revealed as an error site and not in the held-back set.</returns>
@@ -627,6 +635,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         _store = new ValidationMessageStore(editContext);
         editContext.OnFieldChanged += HandleFieldChanged;
+#if NET11_0_OR_GREATER
+        editContext.OnValidationStateChanged += HandleValidationStateChanged;
+#endif
         editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
         Registry = new FieldRegistry();
         _heldStatePublish = new BatchPost(RunHeldStatePublish);
@@ -695,17 +706,65 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     public FieldState GetFieldState(FieldIdentifier field)
     {
         var (hasErrors, hasWarnings, hasInfos) = ScanFieldSeverities(field);
+        var isTouched = _touched.Contains(field);
+        var isModified = EditContext.IsModified(field);
+        var isValidating = FieldPending(field, out var blazorPending);
 
         return new FieldState
         {
-            IsTouched = _touched.Contains(field),
-            IsModified = EditContext.IsModified(field),
-            IsValidating = IsFieldValidating(field),
+            IsTouched = isTouched,
+            IsModified = isModified,
+            IsValidating = isValidating,
             HasErrors = hasErrors,
             HasWarnings = hasWarnings,
             HasInfos = hasInfos,
-            WouldPassSubmit = WouldPassSubmit(field)
+            WouldPassSubmit = FieldWouldPassSubmit(field, blazorPending)
         };
+    }
+
+    /// <summary>Whether a running check marks <paramref name="field"/> as checking: one of the engine's own, or in the .NET 11 build an async check Blazor runs on the field.</summary>
+    /// <param name="field">The field.</param>
+    /// <param name="blazorPending">Blazor's pending flag for the field as this read it, which it does only where no check of the engine's own covers the field; <see langword="null"/> where it did not read it, and always in the .NET 10 build.</param>
+    /// <returns>What <see cref="FieldState.IsValidating"/> answers for the field.</returns>
+    // The read GetFieldState and IValidatingFieldReader share, so a kit input, FormidableField and
+    // the native-input provider all show Blazor's own check. An async validator registered on the
+    // EditContext (an async DataAnnotations attribute, say) reports there and not to the engine;
+    // HandleValidationStateChanged publishes as it starts and ends.
+    private bool FieldPending(FieldIdentifier field, out bool? blazorPending)
+    {
+#if NET11_0_OR_GREATER
+        if (IsFieldValidating(field))
+        {
+            blazorPending = null;
+            return true;
+        }
+
+        blazorPending = EditContext.IsValidationPending(field);
+        return blazorPending.Value;
+#else
+        blazorPending = null;
+        return IsFieldValidating(field);
+#endif
+    }
+
+    /// <summary>Whether a submit would pass <paramref name="field"/>: the engine's vouch (<see cref="WouldPassSubmit"/>), and in the .NET 11 build no async check Blazor runs on the field is still running or has thrown.</summary>
+    /// <param name="field">The field.</param>
+    /// <param name="blazorPending">Blazor's pending flag for the field as <see cref="FieldPending"/> read it for the same field-state read, or <see langword="null"/> to read it here; unread in the .NET 10 build.</param>
+    /// <returns>What <see cref="FieldState.WouldPassSubmit"/> answers for the field.</returns>
+    // Shared as FieldPending is. A field Blazor is still checking has no answer the engine could
+    // vouch for, and one whose check threw has none either, so neither earns the valid class. The
+    // vouch is read first so its own reads run whatever Blazor reports. GetFieldState hands on the
+    // flag FieldPending read, so one field-state read asks Blazor at most once whether the field is
+    // pending.
+    private bool FieldWouldPassSubmit(FieldIdentifier field, bool? blazorPending)
+    {
+#if NET11_0_OR_GREATER
+        return WouldPassSubmit(field)
+            && !(blazorPending ?? EditContext.IsValidationPending(field))
+            && !EditContext.IsValidationFaulted(field);
+#else
+        return WouldPassSubmit(field);
+#endif
     }
 
     /// <inheritdoc />
@@ -1177,15 +1236,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>Whether the pass in flight covers <paramref name="field"/>, which the pass's kind decides through its pending scope.</summary>
     /// <param name="field">The field.</param>
     /// <returns><see langword="true"/> under a submit for a field its profile declares a rule for, or for any field when the validator cannot report its rules; for a triggering field under a live pass; for a field edited within the window or still held by a debounce window under a refresh; under either of those two, for a field whose cancelled check the pass answers in its place; and never under a load.</returns>
-    // GetFieldState folds this into its own read; IValidatingFieldReader exposes it alone for the
-    // css class provider, which wants only this without the cost of a whole FieldState.
+    // GetFieldState and IValidatingFieldReader read it through FieldPending, the reader alone for
+    // the css class provider, which wants only this without the cost of a whole FieldState.
     private bool IsFieldValidating(FieldIdentifier field) =>
         IsValidating && (_validatingScope is null || _validatingScope.Contains(field));
 
     /// <inheritdoc cref="IValidatingFieldReader.IsFieldValidating"/>
     /// <param name="field">The field.</param>
-    /// <returns>What <see cref="IsFieldValidating"/> answers.</returns>
-    bool IValidatingFieldReader.IsFieldValidating(FieldIdentifier field) => IsFieldValidating(field);
+    /// <returns>What <see cref="FieldPending"/> answers.</returns>
+    bool IValidatingFieldReader.IsFieldValidating(FieldIdentifier field) => FieldPending(field, out _);
 
     /// <inheritdoc cref="IValidatingFieldReader.IsFieldTouched"/>
     /// <param name="field">The field.</param>
@@ -1203,8 +1262,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <inheritdoc cref="IValidatingFieldReader.WouldPassSubmit"/>
     /// <param name="field">The field.</param>
-    /// <returns>What <see cref="WouldPassSubmit"/> answers.</returns>
-    bool IValidatingFieldReader.WouldPassSubmit(FieldIdentifier field) => WouldPassSubmit(field);
+    /// <returns>What <see cref="FieldWouldPassSubmit"/> answers.</returns>
+    bool IValidatingFieldReader.WouldPassSubmit(FieldIdentifier field) => FieldWouldPassSubmit(field, blazorPending: null);
 
     /// <inheritdoc cref="IValidatingFieldReader.InlineMessageLive"/>
     string? IValidatingFieldReader.InlineMessageLive => _options.InlineMessageLive;
@@ -4224,26 +4283,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // its view warrants: a render for a component that has just mounted, never a stale one.
     private FormidableStateChangedEventArgs DescribeChange()
     {
-        var keys = new HashSet<FieldIdentifier>(Registry.RegisteredFields);
-        keys.UnionWith(_touched);
-        keys.UnionWith(_engagedFields);
-        keys.UnionWith(_liveVerdicts.Keys);
-        keys.UnionWith(_submitVerdictErrors.Keys);
-        keys.UnionWith(_submitVerdictAdvisories.Keys);
-        keys.UnionWith(_serverErrors.Keys);
-        keys.UnionWith(_serverAdvisories.Keys);
-
-        // A submit's scope stays out: it lists every field the submit profile declares, rows the
-        // page never rendered included. A field nothing else holds has its pending state move
-        // with FormChanged, as FormidableStateChangedEventArgs tells a handler: IsValidating
-        // moves as the submit starts and ends, and the scope's move count while it runs.
-        if (_validatingScope is not null && _currentPass?.Kind != PassKind.Submit)
-        {
-            keys.UnionWith(_validatingScope);
-        }
-
-        keys.Add(ModelLevelField);
-
+        var keys = ViewKeys();
         var changed = new HashSet<FieldIdentifier>();
         var next = new Dictionary<FieldIdentifier, FieldView>(keys.Count);
         foreach (var field in keys)
@@ -4286,6 +4326,87 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         return new FormidableStateChangedEventArgs { ChangedFields = changed, FormChanged = formChanged };
     }
+
+    /// <summary>Every field the engine holds anything for: the fields <see cref="DescribeChange"/> compares at each publish.</summary>
+    /// <returns>A new set: the registered, touched and engaged fields, every field a verdict or server issue names, the running check's scope unless it is a submit's, and the model-level field.</returns>
+    private HashSet<FieldIdentifier> ViewKeys()
+    {
+        var keys = new HashSet<FieldIdentifier>(Registry.RegisteredFields);
+        keys.UnionWith(_touched);
+        keys.UnionWith(_engagedFields);
+        keys.UnionWith(_liveVerdicts.Keys);
+        keys.UnionWith(_submitVerdictErrors.Keys);
+        keys.UnionWith(_submitVerdictAdvisories.Keys);
+        keys.UnionWith(_serverErrors.Keys);
+        keys.UnionWith(_serverAdvisories.Keys);
+
+        // A submit's scope stays out: it lists every field the submit profile declares, rows the
+        // page never rendered included. A field nothing else holds has its pending state move
+        // with FormChanged, as FormidableStateChangedEventArgs tells a handler: IsValidating
+        // moves as the submit starts and ends, and the scope's move count while it runs.
+        if (_validatingScope is not null && _currentPass?.Kind != PassKind.Submit)
+        {
+            keys.UnionWith(_validatingScope);
+        }
+
+        keys.Add(ModelLevelField);
+        return keys;
+    }
+
+#if NET11_0_OR_GREATER
+    /// <summary>Publishes when Blazor's own async state for a field the engine holds has moved since it last looked: a check that started, ended or threw.</summary>
+    /// <param name="sender">The edit context; not read.</param>
+    /// <param name="e">The notification's arguments; not read.</param>
+    // A kit input, FormidableField and every other surface reading GetFieldState redraw only on the
+    // engine's publish, and an async validator registered on the EditContext tells the engine
+    // nothing. Blazor raises this notification as such a check starts, ends, throws or is cancelled,
+    // so the publish follows it and names each field whose view moved, as a native input redraws
+    // on the notification itself. The engine raises the notification too, around its own
+    // publishes, and those move no Blazor state. One still publishes: a notification that comes as
+    // the engine's fields grow onto one Blazor is checking (a reply's error on it, say) finds the
+    // pending set moved, and of its publish and the engine's own, the later names nothing new.
+    // Telling those apart from Blazor's own notifications would miss a check starting on a field
+    // registered since the last one, which no publish of the engine's has named.
+    private void HandleValidationStateChanged(object? sender, ValidationStateChangedEventArgs e)
+    {
+        if (!_disposed && BlazorFieldStateMoved())
+        {
+            NotifyStateChanged();
+        }
+    }
+
+    /// <summary>Reads which of the engine's fields Blazor reports pending and which faulted, and keeps both for the next look.</summary>
+    /// <returns><see langword="true"/> when either set differs from the last look's.</returns>
+    // Over the fields a publish compares (ViewKeys), so a move here is one the diff can name. Each
+    // look builds that key set, as each publish does, and asks two lookups per field; the pending
+    // and faulted sets stay null while Blazor reports nothing, which is every form with no async
+    // validator of Blazor's own.
+    private bool BlazorFieldStateMoved()
+    {
+        HashSet<FieldIdentifier>? pending = null;
+        HashSet<FieldIdentifier>? faulted = null;
+        foreach (var field in ViewKeys())
+        {
+            if (EditContext.IsValidationPending(field))
+            {
+                (pending ??= []).Add(field);
+            }
+
+            if (EditContext.IsValidationFaulted(field))
+            {
+                (faulted ??= []).Add(field);
+            }
+        }
+
+        var moved = !SameFields(pending, _blazorPendingFields) || !SameFields(faulted, _blazorFaultedFields);
+        _blazorPendingFields = pending;
+        _blazorFaultedFields = faulted;
+        return moved;
+
+        static bool SameFields(HashSet<FieldIdentifier>? now, HashSet<FieldIdentifier>? before) =>
+            (now?.Count ?? 0) == (before?.Count ?? 0) && (now is null || before is null || now.SetEquals(before));
+    }
+#endif
 
     /// <summary>The field's view as the kit would draw it at this moment: its state and its messages.</summary>
     /// <param name="field">The field.</param>
@@ -5721,6 +5842,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _disposed = true;
         _relay = null;
         EditContext.OnFieldChanged -= HandleFieldChanged;
+#if NET11_0_OR_GREATER
+        EditContext.OnValidationStateChanged -= HandleValidationStateChanged;
+#endif
         _refreshTimer?.Dispose();
         _liveTimer?.Dispose();
         _validityTimer?.Dispose();

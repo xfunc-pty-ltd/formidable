@@ -11,10 +11,19 @@ the library renders and by what your stylesheet does with it.
 
 Formidable ships no CSS and no visual opinion. What it ships is a small surface of class names and
 ARIA attributes, and every field exposes it the same way. A kit input, a renderless
-`FormidableField` template and a plain `InputBase` beside them all answer alike. The questions
-below take that surface one problem at a time, each starting with what you see. The sections after
-them are the reference (the fixed structural names, `FormidableCssClasses`, and the bridge that
-classes native inputs) and the sample list.
+`FormidableField` template and a plain `InputBase` beside them all answer alike. On .NET 11 that
+includes Blazor's own async checks (an async DataAnnotations attribute, say): all three show the
+check running, and none turns green after it throws. A field with nothing else to show then wears
+no state class at all.
+
+What the three do not share is the error such a check answers with. An error another validator
+writes for the field (a `DataAnnotationsValidator`'s, at once or asynchronously) marks a plain
+`InputBase` invalid and leaves Formidable's components alone. So a kit input whose own rules pass
+stays green beside it.
+
+The questions below take that surface one problem at a time, each starting with what you see. The
+sections after them are the reference (the fixed structural names, `FormidableCssClasses`, and the
+bridge that classes native inputs) and the sample list.
 
 ## Need to know
 
@@ -34,6 +43,7 @@ and pending is decided separately, on top of whatever that left:
 | 4 | Its only issues are info-severity | `Info` (`formidable-info`) |
 | 5 | It has no issues left to show *and* would pass submit | `Valid` (`formidable-valid`) |
 | Always | A running check marks the field as checking ([which checks mark which fields](async-validation.md#where-does-checking-show-and-where-doesnt-it); a submit marks each field whose submit rules the library can read, a row added while it runs included, or every field where your validator cannot report its rules) | `Pending` (`formidable-pending`), appended to whichever tier applied, or standing alone where none did — it never replaces a tier's own class |
+| Always, on .NET 11 | Blazor's own async check on the field, such as an async DataAnnotations attribute, is still running | `Pending`, as above, and never `Valid` while it runs; a check that threw never earns `Valid` either |
 
 That is the entire class-name contract: rename the five strings, and the order above still decides
 when each one applies.
@@ -46,10 +56,16 @@ class and no `aria-invalid`. A passing value still earns `Valid`, and a running 
 
 ## What puts green on a field?
 
-A field wears `Valid` once three things hold at the same time. The field is touched or modified (a
+A field wears `Valid` once these hold at the same time. The field is touched or modified (a
 committed change, a value change the form has been told of, does both). It has no issue to show, of
 any severity. And every rule the submit profile selects has answered for the value as it stands,
-with none of those answers failing the field. Here is one field, from the moment it renders to the class it wears:
+with none of those answers failing the field.
+
+On .NET 11, an async check Blazor runs on the field (an async DataAnnotations attribute, say) must
+have answered too, without throwing. An error it answers with turns a plain `InputBase` invalid and
+leaves a kit input green, as the opening says.
+
+Here is one field, from the moment it renders to the class it wears:
 
 ```mermaid
 flowchart TD
@@ -763,11 +779,20 @@ the same configured class names with nothing wired for it.
 
 The provider applies the same class names as `FormidableCss.Compute`, under the same rule, and
 hands its state to `FormidableCss.Compute`, the one place the invalid/warning/info/valid/pending
-decision is made. Concretely: a field the engine considers touched (`FieldState.IsTouched`, set by
-`MarkTouched()`) reaches the `Valid` tier through this path on exactly the terms a Formidable input
-reaches it on, `WouldPassSubmit` included. That holds even before the `EditContext` has ever seen
-`NotifyFieldChanged` for it. A hand-rolled provider, or a test double, that builds a `FieldState`
-without setting `WouldPassSubmit` keeps the `Valid` tier reachable too.
+decision is made. That state is the one the form gives a Formidable input, with one difference:
+whether the field has an error comes from the `EditContext`'s messages. So an error another
+validator writes there marks a native input invalid, where a Formidable input shows only
+Formidable's messages.
+
+Concretely: a field the engine considers touched (`FieldState.IsTouched`, set by `MarkTouched()`)
+reaches the `Valid` tier through this path as it would on a Formidable input. That holds even
+before the `EditContext` has ever seen `NotifyFieldChanged` for it. A native input and a Formidable
+input on the same field differ in one case only: when another validator has written an error for
+the field, the native input is invalid and the Formidable input can still be green.
+
+`FieldState.WouldPassSubmit` says whether a submit would pass the field, and it starts `true` on a
+`FieldState` built with `new`. So a hand-rolled provider, or a test double, that leaves it unset
+keeps the `Valid` tier reachable too.
 
 A native input inside a Formidable form also shows the same "checking…" cue a Formidable input does,
 automatically. See the Vanilla interop section of [Component kit](component-kit.md) for the provider
@@ -781,9 +806,27 @@ is `new FormidableFieldCssClassProvider(engine)`, with the engine read from
 Formidable's and append classes of its own.
 
 It takes the engine and nothing else, so the names it applies are always the ones the form's kit
-inputs apply. A provider that should answer with a different map is a provider of your own, built
-out of the same two public pieces this one uses: `FormidableCss.Compute` over
-`IFormidableEngine.GetFieldState`.
+inputs apply. To apply other class names (a `FormidableCssClasses` of your own), write a provider
+from what this one reads. On .NET 11, `IFormidableEngine.GetFieldState` already says whether
+Blazor's own check on the field is running or threw. Copy that state with `HasErrors` set from the
+`EditContext`'s messages for the field, and hand the copy to `FormidableCss.Compute` with your class
+names:
+
+```csharp
+public sealed class MyFieldCssClassProvider(IFormidableEngine engine, FormidableCssClasses classes)
+    : FieldCssClassProvider
+{
+    public override string GetFieldCssClass(EditContext editContext, in FieldIdentifier fieldIdentifier)
+    {
+        var state = engine.GetFieldState(fieldIdentifier) with
+        {
+            HasErrors = editContext.GetValidationMessages(fieldIdentifier).Any(),
+        };
+
+        return FormidableCss.Compute(state, classes);
+    }
+}
+```
 
 One lifetime note for `FormidableValidator`, which attaches to an `EditContext` it does not own.
 Disposing the validator leaves Formidable's provider installed on that `EditContext`, still pointing
