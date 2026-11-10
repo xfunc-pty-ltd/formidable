@@ -16,7 +16,7 @@
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.14" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.14" PrivateAssets="all" />
-        <PackageReference Include="MudBlazor" Version="9.11.0" Condition="'$(HostedDemo)' != 'true'" />
+        <PackageReference Include="MudBlazor" Version="9.12.0" Condition="'$(HostedDemo)' != 'true'" />
         <ProjectReference Include="..\..\src\Formidable.Blazor\Formidable.Blazor.csproj" />
         <ProjectReference Include="..\Formidable.Sample.Shared\Formidable.Sample.Shared.csproj" />
     </ItemGroup>
