@@ -6,4 +6,19 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     </PropertyGroup>
+    <!-- The three packages build for net10.0 and net11.0 (src/Directory.Build.props sets that for
+         every project under src/). So do their three unit-test projects and the two other projects
+         those tests load (the sample's models and validators, and the plugin the unload tests
+         load). The sample apps, the tutorial, the browser tests and the host they drive stay on
+         net10.0. Setting TargetFrameworks in a project's own file is not enough, because the
+         TargetFramework set above would keep that project on net10.0 alone. So this group clears
+         it for the projects it names. -->
+    <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Formidable.Tests'
+                           or '$(MSBuildProjectName)' == 'Formidable.Blazor.Tests'
+                           or '$(MSBuildProjectName)' == 'Formidable.AspNetCore.Tests'
+                           or '$(MSBuildProjectName)' == 'Formidable.Sample.Shared'
+                           or '$(MSBuildProjectName)' == 'Formidable.Plugin.Fixture'">
+        <TargetFramework></TargetFramework>
+        <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+    </PropertyGroup>
 </Project>

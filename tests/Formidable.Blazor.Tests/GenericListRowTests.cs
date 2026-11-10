@@ -681,7 +681,7 @@ public class GenericListRowTests : BunitContext
         public string Required(int row) => Input(row).GetAttribute("aria-required") ?? "-";
 
         public IReadOnlyList<string> Messages(int row) =>
-            Cut.FindAll($"[data-entry=\"{row}\"] li, [data-entry=\"{row}\"] .validation-message")
+            Cut.FindAll($"[data-entry=\"{row}\"] li, [data-entry=\"{row}\"] .validation-message:not([hidden])")
                 .Select(element => element.TextContent.Trim())
                 .ToList();
     }

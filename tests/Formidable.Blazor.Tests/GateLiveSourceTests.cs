@@ -530,7 +530,7 @@ public class GateLiveSourceTests : BunitContext
         cut.FindAll($"div[data-entry={entry}] li").Select(li => li.TextContent.Trim()).ToList();
 
     private static List<string> NativeMessages(IRenderedComponent<AccountHost> cut) =>
-        cut.FindAll("div[data-entry=Email] .validation-message").Select(m => m.TextContent.Trim()).ToList();
+        cut.FindAll("div[data-entry=Email] .validation-message:not([hidden])").Select(m => m.TextContent.Trim()).ToList();
 
     private static List<string> SummaryEntries(IRenderedComponent<AccountHost> cut) =>
         cut.FindAll("li.formidable-summary__item").Select(li => li.TextContent.Trim()).ToList();

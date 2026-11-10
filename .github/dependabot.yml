@@ -27,11 +27,12 @@ updates:
       # The two framework entries are floors: the lowest patch whose API the library actually
       # uses, so a consumer on an earlier patch still restores. Raising either one re-creates
       # the NU1605 that a Razor class library pulls a Blazor WebAssembly consumer into. The
-      # consumer-restore job in ci.yml is where that shows. It restores the packed packages
-      # into two consumers that between them pin both floored packages at 10.0.0, and a raised
-      # floor fails that restore. No project under samples/ or tests/ is such a consumer. None
-      # references either floored package directly, and an ASP.NET Core host prunes the
-      # framework-provided references that make the conflict visible.
+      # consumer-restore job in ci.yml is where that shows. Of the four consumers it restores
+      # the packed packages into, the two net10.0 ones between them pin both floored packages at
+      # 10.0.0, and the net11.0 app pins Components.Web at its net11.0 floor, 11.0.0. A raised
+      # floor fails that restore. No project under samples/ or tests/ is such a
+      # consumer. None references either floored package directly, and an ASP.NET Core host
+      # prunes the framework-provided references that make the conflict visible.
       #
       # The FluentValidation entry is a range capped below the next major, because the
       # inspection seam reads FluentValidation's own rule objects. Crossing that cap is a
@@ -46,6 +47,8 @@ updates:
       # And a floor being a minimum rather than a lock only absolves the consumer, not
       # this repository: restore takes the lowest applicable version, so Formidable and
       # Formidable.Blazor compile against the floor itself until someone raises it by hand.
+      # (Formidable's net11.0 build has no DI Abstractions floor. It compiles against the copy
+      # the .NET 11 shared framework carries.)
       # The sample app's own WebAssembly reference lifts its graph to a later patch, so the
       # Pages demo runs on that patch rather than on the floor.
       - dependency-name: "Microsoft.Extensions.DependencyInjection.Abstractions"

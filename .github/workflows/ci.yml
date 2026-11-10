@@ -15,9 +15,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      # global.json names the 11 SDK, which builds everything. The 10 SDK is installed beside it
+      # for its runtime, because the unit tests run on net10.0 as well as net11.0.
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            10.0.x
+            11.0.x
       - run: dotnet build -c Release
       - run: dotnet test -c Release --no-build
 
@@ -29,9 +33,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      # The 11 SDK that global.json names is all the publish needs, although the sample targets
+      # net10.0.
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 11.0.x
       - run: dotnet publish samples/Formidable.Sample -c Release -p:HostedDemo=true -o "$PUBLISH_DIR"
       - name: Check the publish leaves MudBlazor out
         run: |
@@ -52,43 +58,65 @@ jobs:
   # A raised framework floor fails the restore of a consumer that references that package itself
   # at a lower version. No project under samples/ or tests/ references either floored package
   # directly, so none of them is such a consumer. This job packs the three packages and
-  # restores them into two new consumers. The Blazor WebAssembly app pins
-  # Microsoft.AspNetCore.Components.Web at the declared floor, 10.0.0, and the class library
-  # also pins Microsoft.Extensions.DependencyInjection.Abstractions there. A library floor raised
-  # above 10.0.0 then fails the restore with a downgrade error naming the Formidable package it
-  # came through.
+  # restores them into new consumers, a Blazor WebAssembly app and a class library for each
+  # framework. On net10.0 the app pins Microsoft.AspNetCore.Components.Web at its declared
+  # floor, 10.0.0, and the class library also pins
+  # Microsoft.Extensions.DependencyInjection.Abstractions there. On net11.0 the app pins
+  # Components.Web at 11.0.0, the floor of the net11.0 asset. A library floor raised above any
+  # of these then fails the restore with a downgrade error naming the Formidable package it
+  # came through. The net11.0 class library guards no floor, because neither
+  # Formidable.AspNetCore's net11.0 asset nor the core asset under it declares one. It checks
+  # that those assets restore and build clean with warnings as errors. Both net11.0 consumers
+  # also fail unless the restore chose the net11.0 asset of each Formidable package they take.
   consumer-restore:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      # The 11 SDK packs the packages and makes the net11.0 consumers. The 10 SDK makes the
+      # net10.0 ones.
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            10.0.x
+            11.0.x
       - name: Pack the three packages to a local feed
         run: |
           mkdir -p /tmp/formidable-feed
           dotnet pack src/Formidable/Formidable.csproj -c Release -o /tmp/formidable-feed
           dotnet pack src/Formidable.Blazor/Formidable.Blazor.csproj -c Release -o /tmp/formidable-feed
           dotnet pack src/Formidable.AspNetCore/Formidable.AspNetCore.csproj -c Release -o /tmp/formidable-feed
-      - name: Pin the consumers to the repository's SDK selection
-        run: cp global.json /tmp/global.json
+      - name: Give each framework's consumers their SDK selection
+        run: |
+          # The net11.0 consumers take the repository's own selection. The net10.0 consumers take
+          # the 10 SDK, because the 11 SDK's own templates offer net11.0 only.
+          mkdir -p /tmp/net10 /tmp/net11
+          cp global.json /tmp/net11/global.json
+          cat > /tmp/net10/global.json <<'EOF'
+          {
+            "sdk": {
+              "version": "10.0.100",
+              "rollForward": "latestFeature",
+              "allowPrerelease": false
+            }
+          }
+          EOF
       - name: Read back the packed version
         id: version
         run: |
           nupkg=$(ls /tmp/formidable-feed/Formidable.[0-9]*.nupkg)
           version=$(basename "$nupkg" .nupkg | sed 's/^Formidable\.//')
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Restore a Blazor WebAssembly app pinned at the Components.Web floor
-        working-directory: /tmp
+      - name: Restore a net10.0 Blazor WebAssembly app pinned at the Components.Web floor
+        working-directory: /tmp/net10
         env:
           FORMIDABLE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # The consumers live under /tmp, where the copy of global.json made above gives them
-          # the same SDK selection as the checkout. The framework is named as a second guard:
-          # the 10.0.0 pins below need a net10.0 consumer, and a template that does not offer
-          # net10.0 fails here rather than quietly targeting another framework.
+          # The consumers live under /tmp/net10, where the global.json written above selects the
+          # 10 SDK. The framework is named as a second guard: the 10.0.0 pins below need a
+          # net10.0 consumer, and a template that does not offer net10.0 fails here rather than
+          # quietly targeting another framework.
           dotnet new blazorwasm -o consumer-app --empty --framework net10.0
           cd consumer-app
           dotnet new nugetconfig
@@ -107,8 +135,8 @@ jobs:
           # run red for a reason that has nothing to do with the floors.
           dotnet restore -p:TreatWarningsAsErrors=true -p:NuGetAudit=false
           dotnet build -c Release --no-restore -p:TreatWarningsAsErrors=true
-      - name: Restore a Razor class library pinned at both floors
-        working-directory: /tmp
+      - name: Restore a net10.0 Razor class library pinned at both floors
+        working-directory: /tmp/net10
         env:
           FORMIDABLE_VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -129,6 +157,62 @@ jobs:
           # Audit is off for the same reason as in the step above.
           dotnet restore -p:TreatWarningsAsErrors=true -p:NuGetAudit=false
           dotnet build -c Release --no-restore -p:TreatWarningsAsErrors=true
+      - name: Restore a net11.0 Blazor WebAssembly app pinned at the Components.Web floor
+        working-directory: /tmp/net11
+        env:
+          FORMIDABLE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # The framework is named as a guard, as in the net10.0 app step: the 11.0.0 pins below
+          # need a net11.0 consumer.
+          dotnet new blazorwasm -o consumer-app --empty --framework net11.0
+          cd consumer-app
+          dotnet new nugetconfig
+          dotnet nuget add source /tmp/formidable-feed -n formidable-local --configfile nuget.config
+          # Pinned for the reason the net10.0 app step gives. The template's second package is the
+          # Gateway, in place of the DevServer. It declares no dependencies either, and is pinned
+          # only to keep the template's two packages on one version.
+          dotnet add package Microsoft.AspNetCore.Components.WebAssembly --version 11.0.0
+          dotnet add package Microsoft.AspNetCore.Components.Gateway --version 11.0.0
+          dotnet add package Microsoft.AspNetCore.Components.Web --version 11.0.0
+          dotnet add package Formidable.Blazor --version "$FORMIDABLE_VERSION"
+          # Audit is off for the reason the net10.0 app step gives.
+          dotnet restore -p:TreatWarningsAsErrors=true -p:NuGetAudit=false
+          dotnet build -c Release --no-restore -p:TreatWarningsAsErrors=true
+          # A package with no lib/net11.0 folder falls back to its lib/net10.0 asset, and the
+          # restore and build above still pass. So the restore's choice is read back: each
+          # Formidable package this consumer takes must resolve to its lib/net11.0 assembly.
+          for package in Formidable Formidable.Blazor; do
+            jq -e --arg key "$package/$FORMIDABLE_VERSION" --arg dll "lib/net11.0/$package.dll" \
+              '(.targets["net11.0"][$key].compile // {}) | has($dll)' obj/project.assets.json > /dev/null \
+              || { echo "the restore did not choose lib/net11.0 for $package"; exit 1; }
+          done
+      - name: Restore a net11.0 Razor class library that takes Formidable.AspNetCore
+        working-directory: /tmp/net11
+        env:
+          FORMIDABLE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Named for the same reason as in the step above.
+          dotnet new razorclasslib -o consumer-lib --framework net11.0
+          cd consumer-lib
+          dotnet new nugetconfig
+          dotnet nuget add source /tmp/formidable-feed -n formidable-local --configfile nuget.config
+          # This library guards no floor. Formidable.AspNetCore's net11.0 asset and the core asset
+          # under it depend on no framework package, because the .NET 11 shared framework carries
+          # Microsoft.Extensions.DependencyInjection.Abstractions. The step checks that those
+          # assets restore and build clean with warnings as errors. The template's own
+          # Components.Web reference is pinned at 11.0.0 only so that the graph does not move
+          # with the patch the SDK ships.
+          dotnet add package Microsoft.AspNetCore.Components.Web --version 11.0.0
+          dotnet add package Formidable.AspNetCore --version "$FORMIDABLE_VERSION"
+          # Audit is off for the reason the net10.0 app step gives.
+          dotnet restore -p:TreatWarningsAsErrors=true -p:NuGetAudit=false
+          dotnet build -c Release --no-restore -p:TreatWarningsAsErrors=true
+          # Read back for the reason the step above gives.
+          for package in Formidable Formidable.AspNetCore; do
+            jq -e --arg key "$package/$FORMIDABLE_VERSION" --arg dll "lib/net11.0/$package.dll" \
+              '(.targets["net11.0"][$key].compile // {}) | has($dll)' obj/project.assets.json > /dev/null \
+              || { echo "the restore did not choose lib/net11.0 for $package"; exit 1; }
+          done
 
   commit-style:
     if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'

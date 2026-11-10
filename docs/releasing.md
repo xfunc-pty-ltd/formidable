@@ -126,7 +126,9 @@ In the commands below, `X.Y.Z` stands for the version you are releasing.
    Once approved, step by step it:
    - Checks out the repository with `fetch-depth: 0`. MinVer needs the full tag history, not a
      shallow clone, to find the tag and compute the commit height from it.
-   - Installs the .NET 10 SDK.
+   - Installs the .NET 10 and .NET 11 SDKs. `global.json` names the .NET 11 SDK, which builds and
+     packs everything; the .NET 10 SDK is there for its runtime, because the tests run on `net10.0`
+     as well as `net11.0`.
    - Runs `dotnet build -c Release -p:ContinuousIntegrationBuild=true`: a full Release build of
      the whole solution, with the property stamping it as a CI build so the packed assemblies
      carry deterministic-build metadata.
@@ -161,10 +163,20 @@ every push to `main` and on every pull request. Two more jobs run on the same tr
 goes nowhere) and fails if that output holds a MudBlazor assembly, since the hosted demo leaves
 MudBlazor out.
 
-`consumer-restore` packs the three packages to a throwaway local feed and restores
-them into two new consumers that between them pin both framework floors, so a raised floor fails
-there. A fourth job, `commit-style`, checks commit subjects on pull requests (Dependabot's
-excepted).
+`consumer-restore` packs the three packages to a throwaway local feed and restores them into four
+new consumers: projects made from the SDK's templates that install the packages as an app would. A
+floor is the lowest version of a framework package that a Formidable package accepts. A consumer
+that pins the package at that version fails its restore with a downgrade error when a change raises
+the floor.
+
+The two Blazor WebAssembly apps, one for `net10.0` and one for `net11.0`, guard
+`Formidable.Blazor`'s floor on `Microsoft.AspNetCore.Components.Web`: 10.0.0 and 11.0.0. The
+`net10.0` Razor class library guards core's floor on
+`Microsoft.Extensions.DependencyInjection.Abstractions`, 10.0.0. The `net11.0` class library guards
+no floor, because neither `Formidable.AspNetCore`'s `net11.0` build nor the core build under it
+declares one. It checks that this build restores and builds clean with warnings as errors.
+
+The last job, `commit-style`, checks commit subjects on pull requests (Dependabot's excepted).
 
 No `ci.yml` job pushes to NuGet. Publishing is tag-driven only, via the separate `Release`
 workflow above: merging to `main` never ships a package by itself, and neither does a tag, which

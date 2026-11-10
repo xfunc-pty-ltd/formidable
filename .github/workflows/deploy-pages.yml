@@ -20,9 +20,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      # The 11 SDK that global.json names is all the publish needs, although the sample targets
+      # net10.0.
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 11.0.x
       - name: Publish the hosted-demo build
         run: dotnet publish samples/Formidable.Sample -c Release -p:HostedDemo=true -o ${{ env.PUBLISH_DIR }}
       - name: Rewrite base href for the project page path

@@ -1,5 +1,13 @@
 <Project>
     <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)..'))" />
+    <!-- Every project under src/ is a package, and every package builds for net10.0 and net11.0.
+         The list is set here, by location, so a package added under src/ gets both builds without
+         its name being added anywhere. The TargetFramework the root file sets is cleared first,
+         because a project that keeps it builds for that one framework alone. -->
+    <PropertyGroup>
+        <TargetFramework></TargetFramework>
+        <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+    </PropertyGroup>
     <PropertyGroup>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <!-- Applies only to the three library projects under src/ (this file is not imported by

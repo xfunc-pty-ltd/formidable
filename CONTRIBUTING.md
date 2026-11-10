@@ -37,7 +37,12 @@ docs/                      the reference docs, one file per topic
 
 ## Dev setup
 
-You'll need the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). The repository's `global.json` selects the newest .NET 10 SDK even when a newer major is installed, so a .NET 10 SDK has to be present.
+You'll need the [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0) and the
+[.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) side by side. The repository's
+`global.json` selects the newest .NET 11 SDK even when a newer major is installed, so a .NET 11 SDK
+has to be present. That SDK builds everything. The .NET 10 SDK is there for its runtimes: the unit
+tests run on `net10.0` as well as `net11.0`, and the sample apps and the browser tests target
+`net10.0`.
 
 ```bash
 dotnet build
@@ -53,6 +58,17 @@ Plain `dotnet test` runs the unit suite only; it also reports the E2E project's 
 (see below) rather than failing, so a clean run reports passed + skipped, never a failure, when
 nothing is broken. CI (`.github/workflows/ci.yml`) runs `dotnet build -c Release` and
 `dotnet test -c Release --no-build` on every push to `main` and every pull request.
+
+CI also packs the three packages and restores them into four consumers: new projects made from the
+SDK's templates that install the packages as your own app would. They guard the framework floors. A
+framework floor is the lowest version of a framework package (one Microsoft ships with .NET, such as
+`Microsoft.AspNetCore.Components.Web`) that a Formidable package accepts.
+
+A Blazor WebAssembly app for each framework guards `Formidable.Blazor`'s floor on
+`Microsoft.AspNetCore.Components.Web` (10.0.0 and 11.0.0). A `net10.0` class library guards core's
+floor on `Microsoft.Extensions.DependencyInjection.Abstractions` (10.0.0). A `net11.0` class library
+guards no floor, since neither `Formidable.AspNetCore`'s `net11.0` build nor the core build under it
+declares one. It checks that this build restores and builds clean.
 
 ### The E2E gate
 
@@ -110,9 +126,8 @@ are squash-merged, so history stays linear whatever your fork looks like.
    [Before opening a PR](#before-opening-a-pr).
 5. Push the branch to your fork and open a pull request against `xfunc-pty-ltd/formidable`'s `main`.
 6. CI builds and tests the solution, publishes the sample as a smoke check, restores the packed
-   packages into two consumers that between them pin both framework floors, and checks the
-   commit shape. A pull request that raises a framework floor in `src/` fails that restore with
-   a package-downgrade error (`NU1605`).
+   packages into its four [consumers](#dev-setup), and checks the commit shape. A pull request that
+   raises a framework floor in `src/` fails that restore with a package-downgrade error (`NU1605`).
 7. The maintainer reviews and squash-merges. The squash subject is taken from the pull request
    title, so give the PR a title in the same `type(scope): subject` shape.
 8. Keep your fork current by syncing its `main` (the Sync fork button on GitHub, or
@@ -125,6 +140,7 @@ Commits follow [Angular Conventional Commits](https://www.conventionalcommits.or
 `type(scope): subject`, with types `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `style`,
 `build`, `chore` or `ci`, a subject of at most 72 characters, and a body explaining the *why*,
 not just the *what*. Reference an issue from the body (`Closes #123`); the changelog links it.
+
 CI checks the shape on every pull request; Dependabot's own are exempt, since its titles are
 machine-fixed. Look at the existing git history for the tone and level of detail expected.
 

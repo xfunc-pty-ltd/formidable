@@ -476,7 +476,7 @@ public class FormidableFormReconcileTests : BunitContext
     {
         Assert.Contains(editContext.GetValidationMessages(field), m => m.Contains("10"));
         Assert.Contains(cut.FindAll("ul.formidable-summary__group--error li"), li => li.TextContent.Contains("10"));
-        Assert.Contains(cut.FindAll("div.validation-message"), div => div.TextContent.Contains("10"));
+        Assert.Contains(cut.FindAll("div.validation-message:not([hidden])"), div => div.TextContent.Contains("10"));
     }
 
     private static void AssertGone<TComponent>(IRenderedComponent<TComponent> cut, EditContext editContext, FieldIdentifier field)
@@ -484,7 +484,7 @@ public class FormidableFormReconcileTests : BunitContext
     {
         Assert.Empty(editContext.GetValidationMessages(field));
         Assert.DoesNotContain(cut.FindAll("ul.formidable-summary__group--error li"), li => li.TextContent.Contains("10"));
-        Assert.DoesNotContain(cut.FindAll("div.validation-message"), div => div.TextContent.Contains("10"));
+        Assert.DoesNotContain(cut.FindAll("div.validation-message:not([hidden])"), div => div.TextContent.Contains("10"));
     }
 
     private static void WithContext(SynchronizationContext context, Action act)

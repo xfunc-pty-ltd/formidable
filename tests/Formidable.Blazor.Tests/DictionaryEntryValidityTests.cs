@@ -490,7 +490,7 @@ public class DictionaryEntryValidityTests : BunitContext
         public string Class(string name) => Input(name).GetAttribute("class") ?? string.Empty;
 
         public IReadOnlyList<string> Messages(string name) =>
-            Cut.FindAll($"[data-entry=\"{name}\"] li, [data-entry=\"{name}\"] .validation-message")
+            Cut.FindAll($"[data-entry=\"{name}\"] li, [data-entry=\"{name}\"] .validation-message:not([hidden])")
                 .Select(element => element.TextContent.Trim())
                 .ToList();
     }

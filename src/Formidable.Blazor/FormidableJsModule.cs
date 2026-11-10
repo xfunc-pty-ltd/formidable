@@ -44,7 +44,15 @@ internal sealed class FormidableJsModule
             DynamicallyAccessedMemberTypes.PublicProperties)] T>(string identifier, params object?[] args)
     {
         var module = await ImportAsync();
+
+        // BL0016 asks for a try/catch around each JS interop call. Every call the library makes
+        // to its script comes through this class, and the three calls it leaves unguarded hand a
+        // failure to the caller on purpose, because what a failed call costs is the caller's to
+        // judge. A caller that absorbs one tests it with IsInteropFailure, or catches everything
+        // where the script backs a feature the form can do without.
+#pragma warning disable BL0016
         return await module.InvokeAsync<T>(identifier, args);
+#pragma warning restore BL0016
     }
 
     /// <summary>Invokes the named export on the module, discarding any result.</summary>
@@ -54,15 +62,23 @@ internal sealed class FormidableJsModule
     public async ValueTask InvokeVoidAsync(string identifier, params object?[] args)
     {
         var module = await ImportAsync();
+
+        // Left to the caller, for the reason InvokeAsync gives.
+#pragma warning disable BL0016
         await module.InvokeVoidAsync(identifier, args);
+#pragma warning restore BL0016
     }
 
     /// <summary>Imports the module once, sharing the in-flight import with concurrent callers and forgetting a failed one so the next call re-imports.</summary>
     /// <returns>The imported module.</returns>
     private async Task<IJSObjectReference> ImportAsync()
     {
+        // Left to the caller, for the reason InvokeAsync gives. The catch below forgets a failed
+        // import and rethrows it.
+#pragma warning disable BL0016
         var moduleTask = _moduleTask ??= _jsRuntime.InvokeAsync<IJSObjectReference>(
             "import", "./_content/Formidable.Blazor/formidable.js").AsTask();
+#pragma warning restore BL0016
 
         try
         {

@@ -817,7 +817,7 @@ public class ScalarRowIdentityTests : BunitContext
         public string Class(int index) => Input(index).GetAttribute("class") ?? string.Empty;
 
         public IReadOnlyList<string> Messages(int index) =>
-            Cut.FindAll($"[data-row=\"{index}\"] li, [data-row=\"{index}\"] .validation-message")
+            Cut.FindAll($"[data-row=\"{index}\"] li, [data-row=\"{index}\"] .validation-message:not([hidden])")
                 .Select(e => e.TextContent.Trim())
                 .ToList();
     }

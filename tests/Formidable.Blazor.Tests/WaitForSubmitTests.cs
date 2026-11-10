@@ -140,7 +140,7 @@ public class WaitForSubmitTests : BunitContext
     {
         Assert.Empty(cut.FindAll("ul.formidable-message-list li"));
         Assert.Empty(cut.FindAll("ul.formidable-summary__group--error li"));
-        Assert.Empty(cut.FindAll("div.validation-message"));
+        Assert.Empty(cut.FindAll("div.validation-message:not([hidden])"));
         Assert.Empty(editContext.GetValidationMessages(field));
         foreach (var input in cut.FindAll("input"))
         {
@@ -160,7 +160,7 @@ public class WaitForSubmitTests : BunitContext
         Assert.Contains(editContext.GetValidationMessages(field), m => m.Contains("10"));
         if (nativeMessage)
         {
-            Assert.Contains(cut.FindAll("div.validation-message"), div => div.TextContent.Contains("10"));
+            Assert.Contains(cut.FindAll("div.validation-message:not([hidden])"), div => div.TextContent.Contains("10"));
         }
 
         var input = cut.Find("input");
@@ -190,7 +190,7 @@ public class WaitForSubmitTests : BunitContext
                 "ul.formidable-message-list li",
                 "ul.formidable-summary__group--error li",
                 "ul.validation-errors li",
-                "div.validation-message",
+                "div.validation-message:not([hidden])",
             ];
         }
 
@@ -676,7 +676,7 @@ public class WaitForSubmitTests : BunitContext
         await cut.InvokeAsync(() => cut.Find("input[data-name=plain]").Change(TooLong));
         cut.WaitForAssertion(() =>
         {
-            Assert.Contains(cut.FindAll("div.validation-message"), div => div.TextContent.Contains("10"));
+            Assert.Contains(cut.FindAll("div.validation-message:not([hidden])"), div => div.TextContent.Contains("10"));
             Assert.Contains(cut.FindAll("ul.formidable-summary__group--error li"), li => li.TextContent.Contains("10"));
         });
 
@@ -776,7 +776,7 @@ public class WaitForSubmitTests : BunitContext
         Assert.Equal(formRenders, host.ContentRenders);
         Assert.Empty(engine.EditContext.GetValidationMessages(description));
         Assert.DoesNotContain(cut.FindAll("ul.formidable-summary__group--error li"), li => li.TextContent.Contains("10"));
-        Assert.DoesNotContain(cut.FindAll("div.validation-message"), div => div.TextContent.Contains("10"));
+        Assert.DoesNotContain(cut.FindAll("div.validation-message:not([hidden])"), div => div.TextContent.Contains("10"));
 
         await Services.DisposeAsync();
     }
@@ -916,7 +916,7 @@ public class WaitForSubmitTests : BunitContext
         await Settle(form);
 
         Assert.True(engine.GetFieldState(description).IsModified);
-        Assert.Empty(cut.FindAll("div.validation-message"));
+        Assert.Empty(cut.FindAll("div.validation-message:not([hidden])"));
         Assert.DoesNotContain("formidable-invalid", cut.Find("input").GetAttribute("class") ?? string.Empty);
         Assert.Empty(cut.FindAll("ul.formidable-summary__group--error li"));
 
@@ -924,7 +924,7 @@ public class WaitForSubmitTests : BunitContext
 
         cut.WaitForAssertion(() =>
         {
-            Assert.Contains(cut.FindAll("div.validation-message"), div => div.TextContent.Contains("10"));
+            Assert.Contains(cut.FindAll("div.validation-message:not([hidden])"), div => div.TextContent.Contains("10"));
             Assert.Contains("formidable-invalid", cut.Find("input").GetAttribute("class"));
             Assert.Contains(cut.FindAll("ul.formidable-summary__group--error li"), li => li.TextContent.Contains("10"));
         });
@@ -1296,7 +1296,7 @@ public class WaitForSubmitTests : BunitContext
             block.Render(parameters => parameters.Add(p => p.Show, true));
             rowsInTheBatch = cut.FindAll("div.waiting-row").Count;
             rowSurfacesInTheBatch = SurfacesShowing(
-                cut, "SKU", "div.waiting-row ul.formidable-message-list li", "div.waiting-row div.validation-message");
+                cut, "SKU", "div.waiting-row ul.formidable-message-list li", "div.waiting-row div.validation-message:not([hidden])");
         });
 
         Assert.Equal(order.Items.Count, rowsInTheBatch);

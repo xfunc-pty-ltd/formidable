@@ -52,6 +52,6 @@ public class NativeInputAsyncSetterTests : BunitContext
         await cut.InvokeAsync(() => { });
 
         Assert.Empty(engine.GetIssues(FieldIdentifier.Create(() => order.Description)));
-        Assert.Empty(cut.FindAll(".validation-message"));
+        Assert.Empty(cut.FindAll(".validation-message:not([hidden])"));
     }
 }

@@ -187,8 +187,12 @@ public class FocusServiceTests : BunitContext
 
         public FakeModule Module { get; } = new();
 
+        // BL0016 reads this forward to the overload below as an unguarded JS interop call. It
+        // crosses no interop boundary (both overloads are this test double's own).
+#pragma warning disable BL0016
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
             InvokeAsync<TValue>(identifier, CancellationToken.None, args);
+#pragma warning restore BL0016
 
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args)
         {
@@ -203,8 +207,11 @@ public class FocusServiceTests : BunitContext
     /// <summary>Test-only runtime whose "import" call never completes.</summary>
     private sealed class HangingImportJSRuntime : IJSRuntime
     {
+        // Suppressed for the reason FlakyImportJSRuntime gives.
+#pragma warning disable BL0016
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
             InvokeAsync<TValue>(identifier, CancellationToken.None, args);
+#pragma warning restore BL0016
 
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args)
         {
@@ -241,8 +248,11 @@ public class FocusServiceTests : BunitContext
     {
         public int FocusCalls { get; private set; }
 
+        // Suppressed for the reason FlakyImportJSRuntime gives.
+#pragma warning disable BL0016
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
             InvokeAsync<TValue>(identifier, CancellationToken.None, args);
+#pragma warning restore BL0016
 
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args)
         {
