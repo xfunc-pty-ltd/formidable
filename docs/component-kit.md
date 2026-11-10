@@ -924,7 +924,7 @@ or from anything else it knows about a field. Five properties of the resulting o
 |---|---|
 | Two issues on one field keep the engine's own order | The sort is by field, so it never reorders what one field reported. |
 | A verdict about the whole form is reported first | The model-level field rides along on every resolution, and its element is the `<form>`, which contains every field on the page, so document order puts the defensive gate's explanation and a validator fault first. An implementation need not special-case it: `FormidableFieldId.For` derives its id the same way. |
-| A field the page cannot place sorts last | The service answers only for the fields it can locate, so anything it leaves out sorts after everything it placed: a control that renders no id of its own, and a row held only by [`KeepRegistered`](#virtualize-and-keepregistered), which stays registered precisely because it has left the DOM. |
+| A field the page cannot place sorts last | The service answers only for the fields it can locate, so anything it leaves out sorts after everything it placed: a field with no element carrying its id, and a row held only by [`KeepRegistered`](#virtualize-and-keepregistered), which stays registered precisely because it has left the DOM. |
 | An empty answer and no answer are different answers | An empty list says none of these fields are on the page, which is taken as the order. `null` says the order could not be resolved at all, and the form asks again on a later render, as it does after an interop call that threw. Answer `null` where empty was meant and the form re-resolves on every render; answer empty where `null` was meant and it settles on the engine's own order until the registered field set next changes. |
 | Before the first resolution, the order is the engine's own | A resolve lands after the render that produced the elements, so until one has, `GetVisibleIssues()` reports channel by channel: the fault issue, then submit errors (led by the form's own message about hidden fields while it shows), then advisories, then the live channel. The same is true of a host that never resolves an order (`FormidableValidator` in attach mode, or an app that registered no order service), which keeps the summary working and costs it only the reading order ([Migration guide](migration-guide.md#attach-mode-lists-issues-in-the-engines-order-not-the-pages)). |
 
@@ -1690,8 +1690,12 @@ unless `DisclosureOverride` keeps it
 ([Disclosure](disclosure.md#keepregistered-and-virtualization) has the rule and the four types
 that take the parameter).
 
-The sample pairs it with [`FocusFallback`](#focusfallback) on both the form and the summary, so a
-row far outside the render window is kept disclosed and stays reachable by a click:
+`Virtualize` also renders a few rows past each edge of what is in view: its `OverscanCount`, 3 by
+default on .NET 10 and 15 on .NET 11. A rendered row counts as on screen, so at a submit those rows
+show their errors too, though they are scrolled out of sight.
+
+The sample pairs `KeepRegistered` with [`FocusFallback`](#focusfallback) on both the form and the
+summary, so a row far outside the render window is kept disclosed and stays reachable by a click:
 
 ```razor
 <FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid" FocusFallback="ScrollToRowAsync">

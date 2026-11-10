@@ -72,6 +72,13 @@ asking for a render mode in the component's own words. The rest of the page pain
 does. A form on such a page could be filled in, but its submit would never reach the validation
 pipeline.
 
+> [!NOTE]
+> On .NET 11, Blazor checks a statically rendered form in the browser by default when the form holds
+> a `DataAnnotationsValidator`. That check runs the rules the model's DataAnnotations attributes
+> supply. Formidable's rules are FluentValidation rules, and the check does not run them, so a
+> Formidable form still needs a render mode. On a statically rendered page with no render mode,
+> `FormidableForm` renders its paragraph whatever the form's rules.
+
 ## The server builds the form too
 
 Two routes take a form through a Blazor Web App's server container. Prerendering builds it there

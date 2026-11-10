@@ -371,6 +371,51 @@ What an absorbed refusal costs is the re-resolve a page would otherwise get when
 around without registering or unregistering any, plus the recovery of a click the page moved out
 from under the pointer.
 
+#### Why does a test of Blazor's own form markup fail on .NET 11?
+
+Because under bUnit on .NET 11, Blazor's own form components render more markup than on .NET 10.
+Formidable's components render none of it, so only a test that looks at Blazor's
+`ValidationMessage`, `ValidationSummary` or native inputs meets it.
+
+For a field with no message, `ValidationMessage` renders a hidden, empty placeholder. A
+`ValidationSummary` with nothing to list renders a hidden, empty list. Here are both, for a field
+bound as `Model.Name`:
+
+```html
+<div class="validation-message" data-valmsg-for="Model.Name" data-valmsg-replace="true" hidden></div>
+<ul class="validation-errors validation-summary-valid" data-valmsg-summary="true" hidden></ul>
+```
+
+On .NET 10 neither component renders anything there. An interactive page renders no message
+placeholder for a clean field on either version.
+
+A test that counts these elements, or lists their text, finds more of them on .NET 11. Exclude the
+hidden ones in the selector, which works on both versions:
+
+```csharp
+var messages = cut.FindAll(".validation-message:not([hidden])");
+var summaries = cut.FindAll("ul.validation-errors:not([hidden])");
+```
+
+Markup that shows changes too. A message that shows keeps its two `data-valmsg-` attributes. A
+summary that lists errors carries `data-valmsg-summary` and the class `validation-summary-errors`. A
+native input with no `id` of its own gains one, `id="Model_Name"` for the field above.
+
+So a `MarkupMatches` written against .NET 10's markup fails on .NET 11. Compare the text instead, or
+tell the comparison to ignore what .NET 11 adds. With the field's message showing, every line below
+succeeds on both versions:
+
+```csharp
+Assert.Equal("Name is required", cut.Find("div.validation-message").TextContent);
+
+cut.Find("div.validation-message").MarkupMatches(
+    """<div class="validation-message" data-valmsg-for:ignore data-valmsg-replace:ignore>Name is required</div>""");
+cut.Find("ul.validation-errors").MarkupMatches(
+    """<ul diff:ignoreAttributes><li class="validation-message">Name is required</li></ul>""");
+cut.Find("input[name='Model.Name']").MarkupMatches(
+    """<input id:ignore name="Model.Name" class="invalid" aria-invalid="true">""");
+```
+
 ### Waiting for the answer
 
 A verdict lands a render or two after the event that asked for it, and an async rule lands later

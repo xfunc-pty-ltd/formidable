@@ -568,9 +568,11 @@ gap `FocusFallback` recovers, on either component, matters for three cases:
 | A raw or foreign control whose markup never rendered `field.ElementId` as its `id` | Which is why `FormidableField`'s `ForeignControl.razor` sample splats `@attributes="field.InputAttributes"` onto its `<select>`: one splat carrying the id, the state class, and `aria-invalid`, `aria-describedby` and `aria-required` whenever each applies (see [Component kit](component-kit.md)). |
 | An element that carries the id and will not take focus | A disabled control, one inside a closed `<details>` or an `inert` subtree, or a container given the id without the `tabindex="-1"` that makes a `<div>` or a `<fieldset>` focusable at all. |
 
-A `FormidableFieldAnchor`-only registration with no id on the control it anchors has nothing for the
-focus service to find. [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) closes that
-gap, giving its native `InputText` the field's id alongside the anchor.
+A `FormidableFieldAnchor`-only registration with no element carrying the field's id has nothing for
+the focus service to find. The id .NET 11 gives a native input that has none of its own is built
+from its expression, so it is never that id.
+[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) closes the gap, giving its native
+`InputText` the field's id alongside the anchor.
 [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) illustrates it instead, holding the
 id back until a focus misses and supplying it from `FocusFallback` for the retry.
 
