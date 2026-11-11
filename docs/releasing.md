@@ -62,13 +62,17 @@ local run is the only thing that actually exercises it.
    In PowerShell, set the variable first: `$env:FORMIDABLE_E2E = "1"; dotnet test`.
 
    > [!IMPORTANT]
-   > Everything must pass with nothing skipped except the docs-capture utilities (`DocsCapture`),
-   > which stay behind their own `FORMIDABLE_CAPTURE=1` gate above this one and sit out of this run
-   > on purpose: they render the PNGs under `docs/assets`, not verify anything, and
-   > `FORMIDABLE_E2E=1 FORMIDABLE_CAPTURE=1 dotnet test --filter DocsCapture` is how you re-run them
-   > after a visual change. Any other skip here means the variable never reached the test host and
-   > the browser suite did not actually run: without it the same command still reports success,
-   > having skipped every E2E test.
+   > Everything must pass with exactly four tests skipped, each sitting out of this run on purpose.
+   > Three are the docs-capture utilities (`DocsCapture`), behind their own `FORMIDABLE_CAPTURE=1`
+   > gate above this one. They render the PNGs under `docs/assets` rather than verify anything, and
+   > `FORMIDABLE_E2E=1 FORMIDABLE_CAPTURE=1 dotnet test --filter DocsCapture` re-runs them after a
+   > visual change. The fourth is the render-cost measurement (`RenderCostMeasurement`), which
+   > writes its timings to a file and asserts nothing about them. It runs only with
+   > `FORMIDABLE_MEASURE=1` set too, and `FORMIDABLE_MEASURE_OUT` naming that file.
+   >
+   > Any other skip here means the variable never reached the test host and the browser suite did
+   > not actually run: without it the same command still reports success, having skipped every E2E
+   > test.
 
    `$env:FORMIDABLE_E2E` set this way persists for the rest of the PowerShell session, not just this
    command. Clear it once verification is done so a later plain `dotnet test` in the same session

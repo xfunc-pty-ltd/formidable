@@ -544,9 +544,12 @@ session. Stop any sample app you already have running first: the fixture owns po
 5183. A port already in use fails the run with an actionable error rather than a hang.
 
 > [!NOTE]
-> A gated run skips only the docs-capture utilities (`DocsCapture.cs`), which sit out of it on
-> purpose: they render the PNGs under `docs/assets`, not verify anything. Any other skip here means
-> the variable never reached the test host, not that the suite is somehow smaller.
+> A gated run skips only the docs-capture utilities (`DocsCapture.cs`) and the render-cost
+> measurement (`RenderCostMeasurement.cs`), which sit out of it on purpose. The utilities render the
+> PNGs under `docs/assets`, and the measurement writes timings to a file, so neither verifies
+> anything. The measurement also needs `FORMIDABLE_MEASURE=1`, and `FORMIDABLE_MEASURE_OUT` naming
+> the JSON file it writes. Any other skip here means `FORMIDABLE_E2E=1` never reached the tests, not
+> that the suite is somehow smaller.
 
 ## The release gate
 
