@@ -197,6 +197,20 @@ public class RuleLevelValidatorTests
         public new bool PreValidate(ValidationContext<RuleModel> context, ValidationResult result) => false;
     }
 
+    /// <summary>Declares a new virtual <c>PreValidate</c>, a slot of its own that FluentValidation never calls.</summary>
+    private abstract class NewSlotPreValidateBase : AbstractValidator<RuleModel>
+    {
+        protected new virtual bool PreValidate(ValidationContext<RuleModel> context, ValidationResult result) => false;
+    }
+
+    /// <summary>Overrides the new slot, not FluentValidation's <c>PreValidate</c>.</summary>
+    private sealed class NewSlotPreValidateValidator : NewSlotPreValidateBase
+    {
+        public NewSlotPreValidateValidator() => RuleFor(x => x.Notes).MaximumLength(3);
+
+        protected override bool PreValidate(ValidationContext<RuleModel> context, ValidationResult result) => false;
+    }
+
     /// <summary>Overrides <c>ValidateAsync</c> to append a failure to what its rules report, over rules in two selection classes.</summary>
     private sealed class AppendingValidator : AbstractValidator<RuleModel>
     {
@@ -232,6 +246,22 @@ public class RuleLevelValidatorTests
         public SyncOverrideValidator() => RuleFor(x => x.Notes).MaximumLength(3);
 
         public override ValidationResult Validate(ValidationContext<RuleModel> context) => base.Validate(context);
+    }
+
+    /// <summary>Declares a new virtual <c>ValidateAsync</c>, a slot of its own that FluentValidation never calls.</summary>
+    private abstract class NewSlotValidateAsyncBase : AbstractValidator<RuleModel>
+    {
+        public new virtual Task<ValidationResult> ValidateAsync(ValidationContext<RuleModel> context, CancellationToken cancellation = default) =>
+            base.ValidateAsync(context, cancellation);
+    }
+
+    /// <summary>Overrides the new slot, not FluentValidation's <c>ValidateAsync</c>.</summary>
+    private sealed class NewSlotValidateAsyncValidator : NewSlotValidateAsyncBase
+    {
+        public NewSlotValidateAsyncValidator() => RuleFor(x => x.Notes).MaximumLength(3);
+
+        public override Task<ValidationResult> ValidateAsync(ValidationContext<RuleModel> context, CancellationToken cancellation = default) =>
+            base.ValidateAsync(context, cancellation);
     }
 
     /// <summary>A rule carrying a dependent rule: the event name is checked once the notes are present.</summary>
@@ -603,18 +633,20 @@ public class RuleLevelValidatorTests
         Assert.False(new FluentValidationModelValidator<RuleModel>(new InheritedPreValidateValidator()).CanValidateByRule);
         Assert.False(new FluentValidationModelValidator<RuleModel>(new DraftSubmitPreValidateValidator()).CanValidateByRule);
 
-        // Controls: the same shapes with no override, and a method that only shares the name,
-        // keep the capability.
+        // Controls: the same shapes with no override, a method that only shares the name, and an
+        // override of a new slot that FluentValidation never calls keep the capability.
         Assert.True(new FluentValidationModelValidator<RuleModel>(new DraftSubmitPlainValidator()).CanValidateByRule);
         Assert.True(new FluentValidationModelValidator<RuleModel>(new PlainRuleValidator()).CanValidateByRule);
         Assert.True(new FluentValidationModelValidator<RuleModel>(new HiddenPreValidateValidator()).CanValidateByRule);
+        Assert.True(new FluentValidationModelValidator<RuleModel>(new NewSlotPreValidateValidator()).CanValidateByRule);
     }
 
     // Every validator call passes through ValidateAsync, so what an override appends would be
     // reported once per set of rules run apart, and a forwarding override would run its target once
     // per set. An override, declared or inherited, turns the capability off, and every doer then
     // throws. The rule-level path is async alone, so an override of the synchronous Validate keeps
-    // the capability. Mutation: drop the ValidateAsync test from CanValidateByRule and
+    // the capability, as does an override of a new ValidateAsync slot, which FluentValidation
+    // never calls. Mutation: drop the ValidateAsync test from CanValidateByRule and
     // RequireRuleLevelCapability, and the capability reads true and SelectRules answers.
     [Fact]
     public async Task CanValidateByRule_is_false_for_a_ValidateAsync_override()
@@ -634,6 +666,7 @@ public class RuleLevelValidatorTests
 
         Assert.False(new FluentValidationModelValidator<RuleModel>(new InheritedValidateAsyncValidator()).CanValidateByRule);
         Assert.True(new FluentValidationModelValidator<RuleModel>(new SyncOverrideValidator()).CanValidateByRule);
+        Assert.True(new FluentValidationModelValidator<RuleModel>(new NewSlotValidateAsyncValidator()).CanValidateByRule);
     }
 
     // FluentValidation asks about a dependent rule in the context of the rule carrying it, and a

@@ -486,6 +486,45 @@ public class EmptyProfileSelectionCheckTests
         await RefusedOnce(new EmptyPhantomProfileModelValidator(), ValidationProfile.Named("Unforwarded" + entryPoint, includeDefaultRules: false, ForwardedRuleSet));
     }
 
+    // An override of Validate may narrow its return type, and every synchronous validation still
+    // reaches it, so a validator forwarding through one counts as selecting like any other
+    // forwarder. Mutation: find the Validate override by walking the class's declared methods for
+    // one whose base definition is FluentValidation's, which an override narrowing its return type
+    // does not trace back to, and this throws the refusal.
+    [Fact]
+    public void A_validator_forwarding_through_a_Validate_override_that_narrows_its_return_type_counts_as_selecting()
+    {
+        var profile = ValidationProfile.Named("ForwardedNarrowed", includeDefaultRules: false, ForwardedRuleSet);
+        var validator = new NarrowingForwardingPhantomProfileModelValidator(new ForwardedPhantomProfileModelValidator());
+
+        var failures = validator.Validate(new PhantomProfileModel(), profile).Errors;
+
+        Assert.Equal([ForwardedMessage], failures.Select(failure => failure.ErrorMessage));
+    }
+
+    // A method that hides an entry point with new, and an override of such a method, are slots
+    // FluentValidation never calls, so neither counts as selecting and the profile is refused, as
+    // it is for a validator that declares nothing. Mutation: count any method named Validate or
+    // ValidateAsync that a class below AbstractValidator declares, and both rows validate.
+    [Theory]
+    [InlineData("hidden")]
+    [InlineData("new slot overridden")]
+    public async Task An_entry_point_hidden_with_new_does_not_count_as_selecting(string shape)
+    {
+        IValidator<PhantomProfileModel> validator = shape == "hidden"
+            ? new HidingEntryPointsPhantomProfileModelValidator()
+            : new NewSlotOverridingPhantomProfileModelValidator();
+
+        // FluentValidation itself, under the forwarded ruleset, never reaches the forwarding methods.
+        ValidationContext<PhantomProfileModel> Forwarded() =>
+            ValidationContext<PhantomProfileModel>.CreateWithOptions(new PhantomProfileModel(), options => options.IncludeRuleSets(ForwardedRuleSet));
+        Assert.Equal([ForwardedMessage], new ForwardedPhantomProfileModelValidator().Validate(Forwarded()).Errors.Select(failure => failure.ErrorMessage));
+        Assert.Empty(validator.Validate(Forwarded()).Errors);
+        Assert.Empty((await validator.ValidateAsync(Forwarded())).Errors);
+
+        await RefusedOnce(validator, ValidationProfile.Named("Hidden" + shape, includeDefaultRules: false, ForwardedRuleSet));
+    }
+
     /// <summary>A profile that leaves out the default rules and selects ruleset <c>B</c>, which no included validator here declares.</summary>
     private static readonly ValidationProfile OnlyB = ValidationProfile.Named("B", includeDefaultRules: false, "B");
 
@@ -678,6 +717,46 @@ public class EmptyProfileSelectionCheckTests
     /// <summary>Declares no rule and overrides nothing: the control the forwarding validators are compared with.</summary>
     public sealed class EmptyPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
     {
+    }
+
+    /// <summary>The narrower result type a <c>Validate</c> override may return.</summary>
+    public sealed class ForwardedValidationResult(ValidationResult result) : ValidationResult(result.Errors);
+
+    /// <summary>Declares no rule, and forwards the synchronous entry point through an override that narrows its return type.</summary>
+    public sealed class NarrowingForwardingPhantomProfileModelValidator(IValidator<PhantomProfileModel> inner) : AbstractValidator<PhantomProfileModel>
+    {
+        public override ForwardedValidationResult Validate(ValidationContext<PhantomProfileModel> context) => new(inner.Validate(context));
+    }
+
+    /// <summary>Declares no rule, and hides both entry points with methods of its own that forward.</summary>
+    public sealed class HidingEntryPointsPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        private readonly ForwardedPhantomProfileModelValidator _inner = new();
+
+        public new ValidationResult Validate(ValidationContext<PhantomProfileModel> context) => _inner.Validate(context);
+
+        public new Task<ValidationResult> ValidateAsync(ValidationContext<PhantomProfileModel> context, CancellationToken cancellation = default) =>
+            _inner.ValidateAsync(context, cancellation);
+    }
+
+    /// <summary>Declares both entry points again as new virtual methods, slots of its own.</summary>
+    public abstract class NewSlotEntryPointsPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public new virtual ValidationResult Validate(ValidationContext<PhantomProfileModel> context) => base.Validate(context);
+
+        public new virtual Task<ValidationResult> ValidateAsync(ValidationContext<PhantomProfileModel> context, CancellationToken cancellation = default) =>
+            base.ValidateAsync(context, cancellation);
+    }
+
+    /// <summary>Declares no rule, and overrides the new slots that forward, not FluentValidation's entry points.</summary>
+    public sealed class NewSlotOverridingPhantomProfileModelValidator : NewSlotEntryPointsPhantomProfileModelValidator
+    {
+        private readonly ForwardedPhantomProfileModelValidator _inner = new();
+
+        public override ValidationResult Validate(ValidationContext<PhantomProfileModel> context) => _inner.Validate(context);
+
+        public override Task<ValidationResult> ValidateAsync(ValidationContext<PhantomProfileModel> context, CancellationToken cancellation = default) =>
+            _inner.ValidateAsync(context, cancellation);
     }
 
     /// <summary>A default rule and a <c>"Submit"</c> rule, with no ruleset named anything else.</summary>

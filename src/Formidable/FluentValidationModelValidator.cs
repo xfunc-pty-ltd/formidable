@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using FluentValidation;
 using FluentValidation.Internal;
 using FluentValidation.Results;
@@ -146,18 +148,42 @@ public sealed partial class FluentValidationModelValidator<TModel>
         return known == Present;
     }
 
-    /// <summary>Finds a <c>PreValidate</c> override by binding the base declaration to a validator and reading which method the call reaches.</summary>
+    /// <summary>Finds a <c>PreValidate</c> override among the methods the validator's class and its bases declare.</summary>
     // The base declaration comes from a delegate this class binds to itself, never from a lookup
-    // by name, so trimming has nothing to keep. Binding a virtual method to an instance
-    // dispatches it through that instance's class, so the bound delegate's Method is the most
-    // derived override, which CoreCLR, Native AOT and Mono WebAssembly all report.
+    // by name. PreValidate is protected, so no method group can bind it on another validator.
+    // Each class from the validator's up to AbstractValidator<TModel> is read for a method whose
+    // base definition is that declaration. An override traces back to it however many classes
+    // lie between, unless it takes a slot of its own, which C# gives an override only when it
+    // narrows the return type. PreValidate returns bool, which no override can narrow. A method
+    // that hides PreValidate with new, and any override of that method, traces back to the hiding
+    // method instead.
     private sealed class PreValidateBinding : AbstractValidator<TModel>
     {
-        private static readonly System.Reflection.MethodInfo BaseDeclaration = new PreValidateBinding().BindSelf().Method;
+        private static readonly MethodInfo BaseDeclaration = new PreValidateBinding().BindSelf().Method;
 
-        public static bool IsOverriddenBy(AbstractValidator<TModel> validator) =>
-            Delegate.CreateDelegate(typeof(Func<ValidationContext<TModel>, ValidationResult, bool>), validator, BaseDeclaration)
-                .Method.DeclaringType != typeof(AbstractValidator<TModel>);
+        [UnconditionalSuppressMessage(
+            "Trimming",
+            "IL2075",
+            Justification = "The type is the runtime type of a live validator. FluentValidation " +
+                "calls PreValidate on every validation, so a trimmed or Native AOT build keeps any " +
+                "override of it on a validator class the app constructs. The metadata this walk " +
+                "reads is kept with it. A method removed anyway is one nothing calls, so it is no " +
+                "override FluentValidation reaches.")]
+        public static bool IsOverriddenBy(AbstractValidator<TModel> validator)
+        {
+            for (var type = validator.GetType(); type is not null && type != typeof(AbstractValidator<TModel>); type = type.BaseType)
+            {
+                foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                {
+                    if (method.GetBaseDefinition().HasSameMetadataDefinitionAs(BaseDeclaration))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
 
         private Func<ValidationContext<TModel>, ValidationResult, bool> BindSelf() => PreValidate;
     }
