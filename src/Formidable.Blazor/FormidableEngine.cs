@@ -310,11 +310,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private bool _publishedIsSubmitting;
     private bool _publishedHasSubmitted;
 
-    // How many times the fields a running submit covers have moved while it ran (RereadSubmitScope),
-    // and that count as of the last publish. The key set leaves a submit's scope out, so a move
-    // in it is a form-level change, as the submit's start and end are.
-    private int _submitScopeMoves;
-    private int _publishedSubmitScopeMoves;
+    // Whether the fields a running submit covers have moved since the last publish
+    // (RereadSubmitScope), which the next publish clears. The key set leaves a submit's scope out,
+    // so a move in it is a form-level change, as the submit's start and end are.
+    private bool _submitScopeMovedSincePublish;
 
     /// <summary>A field's rendered view: its state and its messages as severity and text, compared by value.</summary>
     /// <param name="State">What <see cref="GetFieldState"/> answers for the field.</param>
@@ -520,11 +519,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // them to HoldForNextRefresh (CarryCancelledFields).
     private HashSet<FieldIdentifier>? _currentPassScope;
 
-    // The submit whose scope _validatingScope and _currentPassScope hold, by version, with the
-    // profile it runs: recorded as its begin publishes that scope, and cleared as another pass's
-    // begin or any pass's end replaces it. A newer pass takes a newer version, so a submit it has
-    // superseded never matches, and its scope is never read again (RereadSubmitScope).
-    private (int Version, ValidationProfile Profile)? _scopedSubmit;
+    // The submit whose scope _validatingScope and _currentPassScope hold, by version: recorded as
+    // its begin publishes that scope, and cleared as another pass's begin or any pass's end
+    // replaces it. A newer pass takes a newer version, so a submit it has superseded never
+    // matches, and its scope is never read again (RereadSubmitScope).
+    private int? _scopedSubmitVersion;
 
     // What the submit or load in flight displaced: the re-check or live check it cancelled as it
     // began, and the fields whose live check stood down for it while it ran. Opened by the first
@@ -928,7 +927,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // fields act only on a live check's or a re-check's.
     private bool RereadSubmitScope()
     {
-        if (_scopedSubmit is not { } submit || _currentPass?.Version != submit.Version)
+        if (_scopedSubmitVersion is not { } version || _currentPass is not { } submit || submit.Version != version)
         {
             return false;
         }
@@ -943,7 +942,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         _validatingScope = scope;
         _currentPassScope = scope;
-        _submitScopeMoves++;
+        _submitScopeMovedSincePublish = true;
         return true;
     }
 
@@ -2542,7 +2541,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         IsValidating = false;
         _validatingScope = null;
-        _scopedSubmit = null;
+        _scopedSubmitVersion = null;
         _currentPass = null;
         _currentPassScope = null;
         _submitCoverage.MoveVersion();
@@ -2551,13 +2550,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>Publishes that <paramref name="pass"/> began: sets <see cref="IsValidating"/>, narrows the checking indicator to <paramref name="fields"/>, and for a submit records which submit that scope belongs to.</summary>
     /// <param name="pass">The pass, which must still be current for the write to land.</param>
     /// <param name="fields">The pending scope: a live pass's triggering fields, a refresh's fields edited within its window and those a debounce window still holds, each with the fields of a cancelled check the pass answers in its place; an empty set for a load; and for a submit the fields its profile declares, or <see langword="null"/>, which covers every field, when the validator cannot report its rules.</param>
-    /// <param name="profile">The profile the pass runs, which a submit's scope is read again under (see <see cref="RereadSubmitScope"/>).</param>
-    private Task BeginValidatingAsync(PassScope pass, HashSet<FieldIdentifier>? fields, ValidationProfile profile) =>
+    private Task BeginValidatingAsync(PassScope pass, HashSet<FieldIdentifier>? fields) =>
         PublishPassStateAsync(pass, () =>
         {
             IsValidating = true;
             _validatingScope = fields;
-            _scopedSubmit = pass.Kind == PassKind.Submit ? (pass.Version, profile) : null;
+            _scopedSubmitVersion = pass.Kind == PassKind.Submit ? pass.Version : null;
         });
 
     /// <summary>Retires a pass that ended without landing, whatever ended it, and abandons the held coverage answer, when the pass is still current.</summary>
@@ -2632,7 +2630,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         // Whether a rule failed under this pass, read where its end asks for the re-check a server
         // reply left to it. Kept apart from the fault issue, which a reply applied from a handler
-        // as the fault is reported clears before that end.
+        // as the fault is reported clears before that end. After such a failure the client's
+        // record (_lastCheckFaulted) is still set at that end in every case but one: the latest
+        // TrackFormValidity probe lands an answer between the failure and the end, which clears it.
         var passFaulted = false;
 
         // Whether this pass got through its begin: the cancel of the check before it, and the
@@ -2678,29 +2678,30 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // load. This pass then produces no scope. Writing one would replace the newer check's,
             // and a refresh's would take the fields edited within its window, which the next
             // refresh lights instead. It ends as any superseded pass does.
+            //
+            // The carry runs whether or not this pass is still current, because one of its effects
+            // stays this pass's: a narrowed live check hands the fields of a re-check it cancelled
+            // to the next re-check (HoldForNextRefresh). The check that superseded it cannot do
+            // that in its place, because it read those fields, still on record, as this pass's own
+            // and judged them by this pass's kind. It runs ahead of the scope, which it cannot
+            // change: it calls no consumer code, and it writes only for a narrowed live check,
+            // whose scope never reads what it writes.
+            var carried = superseded is { } cancelledPass && supersededFields is { Count: > 0 }
+                ? CarryCancelledFields(cancelledPass.Kind, supersededFields, kind, profile)
+                : null;
             HashSet<FieldIdentifier>? scope = null;
             if (pass.Version == _version)
             {
                 scope = beginScope();
-                if (superseded is { } cancelledPass
-                    && supersededFields is { Count: > 0 }
-                    && CarryCancelledFields(cancelledPass.Kind, supersededFields, kind, profile) is { } carried)
+                if (carried is not null)
                 {
                     scope?.UnionWith(carried);
                 }
 
                 _currentPassScope = scope;
             }
-            else if (superseded is { } handedOnFrom && supersededFields is { Count: > 0 })
-            {
-                // One effect of the carry stays this pass's: a narrowed live check hands the
-                // fields of a re-check it cancelled to the next re-check (HoldForNextRefresh). The
-                // check that superseded it cannot do that in its place, because it read those
-                // fields, still on record, as this pass's own and judged them by this pass's kind.
-                _ = CarryCancelledFields(handedOnFrom.Kind, supersededFields, kind, profile);
-            }
 
-            await BeginValidatingAsync(pass, scope, profile).ConfigureAwait(false);
+            await BeginValidatingAsync(pass, scope).ConfigureAwait(false);
             begun = true;
 
             while (true)
@@ -2817,7 +2818,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
                     // An answer under the submit profile is the answer the fields a cancelled
                     // re-check left waiting were owed, so no re-check lights them after it.
-                    if (kind != PassKind.Live || ReferenceEquals(profile, _options.SubmitProfile))
+                    if (AnswersSubmitProfile(pass))
                     {
                         _returnedRefreshFields.Clear();
                     }
@@ -2978,24 +2979,23 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                         // ran, because the pass was on its way to an answer that empties the
                         // held-back set (HeldBackAnswerOnItsWay). An end that detached a record of
                         // what the pass displaced came without such an answer, so the re-check is
-                        // asked for again under the apply's own guards; the reply landed its
-                        // issues, so landed is true. A submit that lands an outdated answer
-                        // detaches no record when no live check stood down for it, and needs no
-                        // ask: the edit that outdated it armed the refresh, as every edit made
-                        // while a submit runs does. A rule that failed under this pass, or a client
-                        // check that faulted with no answer landed since, means the client is still
-                        // throwing, and the re-check would run that rule again, so none is owed, as
-                        // none is after a faulted probe (EndProbe). Both are read apart from the
-                        // fault issue, because a reply clears the issue: one applied from a handler
-                        // as the failure is reported, or any before this dispatch. This comes
-                        // after the IsFormValid question and the deferred fires, because a zero
-                        // wait can start the re-check inside its arm, and a question asked after
-                        // that would find nothing armed and arm a validity check beside it. Asked
-                        // here, the arm stands down any validity check they armed, as an apply's
-                        // arm does.
+                        // asked for again under the apply's own guards. A submit that lands an
+                        // outdated answer detaches no record when no live check stood down for it,
+                        // and needs no ask: the edit that outdated it armed the refresh, as every
+                        // edit made while a submit runs does. A rule that failed under this pass, or
+                        // a client check that faulted with no answer landed since, means the client
+                        // is still throwing, and the re-check would run that rule again, so none is
+                        // owed, as none is after a faulted probe (EndProbe). Both are read apart
+                        // from the fault issue, because a reply clears the issue: one applied from
+                        // a handler as the failure is reported, or any before this dispatch. This
+                        // comes after the IsFormValid question and the deferred fires, because a
+                        // zero wait can start the re-check inside its arm, and a question asked
+                        // after that would find nothing armed and arm a validity check beside it.
+                        // Asked here, the arm stands down any validity check they armed, as an
+                        // apply's arm does.
                         if (owed is not null)
                         {
-                            RecheckHeldBackAnswers(landed: true, clientFaulted: passFaulted || _lastCheckFaulted);
+                            RecheckHeldBackAnswers(clientFaulted: passFaulted || _lastCheckFaulted);
                         }
 
                         return Task.CompletedTask;
@@ -3666,7 +3666,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         _heldBackRecheckOwed = false;
-        RecheckHeldBackAnswers(landed: true, clientFaulted: faulted);
+        RecheckHeldBackAnswers(clientFaulted: faulted);
     }
 
     /// <summary>Adopts a whole-model submit-profile report's validity into <see cref="IsFormValid"/>, ahead of any probe still in flight, when no edit arrived after the pass began; a no-op when <see cref="FormidableOptions.TrackFormValidity"/> is off.</summary>
@@ -4332,7 +4332,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             || _publishedIsValidating != IsValidating
             || _publishedIsSubmitting != IsSubmitting
             || _publishedHasSubmitted != HasSubmitted
-            || _publishedSubmitScopeMoves != _submitScopeMoves;
+            || _submitScopeMovedSincePublish;
 
         _publishedViews = next;
         _publishedOrder = _fieldOrder;
@@ -4340,7 +4340,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _publishedIsValidating = IsValidating;
         _publishedIsSubmitting = IsSubmitting;
         _publishedHasSubmitted = HasSubmitted;
-        _publishedSubmitScopeMoves = _submitScopeMoves;
+        _submitScopeMovedSincePublish = false;
 
         return new FormidableStateChangedEventArgs { ChangedFields = changed, FormChanged = formChanged };
     }
@@ -4361,7 +4361,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // A submit's scope stays out: it lists every field the submit profile declares, rows the
         // page never rendered included. A field nothing else holds has its pending state move
         // with FormChanged, as FormidableStateChangedEventArgs tells a handler: IsValidating
-        // moves as the submit starts and ends, and the scope's move count while it runs.
+        // moves as the submit starts and ends, and the scope's own moves while it runs.
         if (_validatingScope is not null && _currentPass?.Kind != PassKind.Submit)
         {
             keys.UnionWith(_validatingScope);
@@ -4719,7 +4719,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         var replyFields = ResolveIssues(reply);
         var errors = new Dictionary<FieldIdentifier, List<ValidationIssue>>();
         var advisories = new Dictionary<FieldIdentifier, List<ValidationIssue>>();
-        var lands = new bool[reply.Length];
+        var landing = new List<(ValidationIssue Issue, FieldIdentifier Field)>(reply.Length);
 
         for (var at = 0; at < reply.Length; at++)
         {
@@ -4765,7 +4765,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 forField.Add(issue);
             }
 
-            lands[at] = true;
+            landing.Add((issue, field));
         }
 
         // A reply that landed errors, none of them on a field on screen, arms the gate as a
@@ -4813,19 +4813,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // Whether the stored client answer is older than the latest edit, so that what it says
         // of a field this apply reveals may be about a value the field no longer holds.
         var clientStale = _submitAnswerEditStamp != _editStamp;
-        var landed = false;
+        var landed = landing.Count > 0;
 
-        for (var at = 0; at < reply.Length; at++)
+        foreach (var (issue, field) in landing)
         {
-            if (!lands[at])
-            {
-                continue;
-            }
-
-            var issue = reply[at];
-            var field = replyFields[at];
-            landed = true;
-
             // A server apply is a disclosure event: it only ever unions, so the ledger takes the
             // field in and the views watch it from here until the form passes or resets — the
             // client's own last answer for it included, unless that answer is older than the
@@ -4859,7 +4850,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // the arm that follows it when the arm's own guards say it will happen (see
         // _reAnswerArmsBeforeReturn).
         var outerPromise = _reAnswerArmsBeforeReturn;
-        _reAnswerArmsBeforeReturn = outerPromise || HeldBackRecheckArms(landed, clientFaulted);
+        _reAnswerArmsBeforeReturn = outerPromise || (landed && HeldBackRecheckArms(clientFaulted));
         try
         {
             RebuildStore();
@@ -4867,17 +4858,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         finally
         {
             _reAnswerArmsBeforeReturn = outerPromise;
-            RecheckHeldBackAnswers(landed, clientFaulted);
+            if (landed)
+            {
+                RecheckHeldBackAnswers(clientFaulted);
+            }
         }
     }
 
-    /// <summary>Whether the held-back set's re-check is due: something landed, the set holds fields, the client had not faulted, the engine lives, no refresh is armed or deferred, nothing on its way answers the latest edit, and the wait passes.</summary>
-    /// <param name="landed">Whether the apply landed at least one issue; <see langword="true"/> from a later arm, at a probe's exit or a submit's or load's end.</param>
+    /// <summary>Whether the held-back set's re-check is due: the set holds fields, the client had not faulted, the engine lives, no refresh is armed or deferred, nothing on its way answers the latest edit, and the wait passes.</summary>
     /// <param name="clientFaulted">Whether the client's last check faulted, which the re-check would only repeat.</param>
     /// <returns><see langword="true"/> when <see cref="RecheckHeldBackAnswers"/> arms the re-check or waits for a probe to do so.</returns>
-    private bool HeldBackRecheckDue(bool landed, bool clientFaulted) =>
-        landed
-        && _heldBackFields.Count > 0
+    private bool HeldBackRecheckDue(bool clientFaulted) =>
+        _heldBackFields.Count > 0
         && !clientFaulted
         && !_disposed
         && !_refreshArmed
@@ -4892,15 +4884,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>Whether a <see cref="FormidableOptions.TrackFormValidity"/> probe begun at the latest edit stamp is still out, computing the rules an apply's re-check would run.</summary>
     private bool ProbeComputesLatestEdit => _probeOut != 0 && _lastProbeEditStamp == _editStamp;
 
-    /// <summary>Whether <see cref="RecheckHeldBackAnswers"/> arms the re-check itself for these arguments, rather than arming nothing or waiting for a probe.</summary>
-    /// <param name="landed">Whether the apply landed at least one issue.</param>
-    /// <param name="clientFaulted">Whether a check had faulted before the apply cleared the fault.</param>
+    /// <summary>Whether <see cref="RecheckHeldBackAnswers"/> arms the re-check itself for this argument, rather than arming nothing or waiting for a probe.</summary>
+    /// <param name="clientFaulted">Whether the client's last check faulted, which the re-check would only repeat.</param>
     /// <returns><see langword="true"/> when the arm follows the apply's publish.</returns>
-    private bool HeldBackRecheckArms(bool landed, bool clientFaulted) =>
-        HeldBackRecheckDue(landed, clientFaulted) && !ProbeComputesLatestEdit;
+    private bool HeldBackRecheckArms(bool clientFaulted) =>
+        HeldBackRecheckDue(clientFaulted) && !ProbeComputesLatestEdit;
 
-    /// <summary>Arms the whole-form re-check at zero for the held-back set, unless the apply landed nothing, the client had faulted, the re-check cannot run, or something on its way answers the latest edit; waits for a probe still computing that edit.</summary>
-    /// <param name="landed">Whether the apply landed at least one issue; <see langword="true"/> from a later arm, at a probe's exit or a submit's or load's end.</param>
+    /// <summary>Arms the whole-form re-check at zero for the held-back set, unless the client had faulted, the re-check cannot run, or something on its way answers the latest edit; waits for a probe still computing that edit.</summary>
     /// <param name="clientFaulted">Whether the client's last check faulted, which the re-check would only repeat.</param>
     // After the store rebuild, because a zero wait can start the refresh inside the arm under a
     // clock that fires one there, and the apply's own view publishes first. Through the refresh
@@ -4925,9 +4915,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // model, and a check beside it could run an async rule the re-check was still computing. The
     // record the arm sets is what keeps the green vouch counting the re-check until it begins
     // (RefreshArmedByEdit), so standing the check down drops no field's valid class.
-    private void RecheckHeldBackAnswers(bool landed, bool clientFaulted)
+    private void RecheckHeldBackAnswers(bool clientFaulted)
     {
-        if (!HeldBackRecheckDue(landed, clientFaulted))
+        if (!HeldBackRecheckDue(clientFaulted))
         {
             return;
         }
@@ -4949,17 +4939,25 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Whether the check in flight will replace the stored submit answer with one that empties the held-back set: a submit, or a refresh, a load or a submit-profile live pass begun at the latest edit stamp.</summary>
-    // A live pass is judged by the profile it captured as it began, against the submit profile as
-    // the options stand, which is the test its landing makes before it records the answer: a page
-    // that widens LiveProfile, or swaps SubmitProfile, while a narrowed or default live pass runs
-    // does not change what that pass checks. A submit or a load counted here can still end
-    // without that answer (cancelled, faulted, or a submit whose restarts are spent), and the
-    // re-check is then asked for again at its end, under the same guards (RunPassAsync).
+    // A live pass is judged by AnswersSubmitProfile, the test its landing makes. A submit or a
+    // load counted here can still end without that answer (cancelled, faulted, or a submit whose
+    // restarts are spent), and the re-check is then asked for again at its end, under the same
+    // guards (RunPassAsync).
     private bool HeldBackAnswerOnItsWay =>
         _currentPass is { } pass
         && (pass.Kind == PassKind.Submit
-            || (pass.EditStamp == _editStamp
-                && (pass.Kind != PassKind.Live || ReferenceEquals(pass.Profile, _options.SubmitProfile))));
+            || (pass.EditStamp == _editStamp && AnswersSubmitProfile(pass)));
+
+    /// <summary>Whether <paramref name="pass"/> answers under the submit profile: a submit, a refresh or a load always does, running the one it read as it began, and a live pass does when its profile is the instance <see cref="FormidableOptions.SubmitProfile"/> holds now.</summary>
+    /// <param name="pass">The pass.</param>
+    /// <returns><see langword="true"/> for a submit, a refresh or a load, and for a live pass whose profile is the instance <see cref="FormidableOptions.SubmitProfile"/> holds as this is asked.</returns>
+    // A live pass is judged by the profile it captured as it began, against the submit profile as
+    // the options stand: a page that widens LiveProfile, or swaps SubmitProfile, while a narrowed
+    // or default live pass runs does not change what that pass checks. The landing asks this
+    // before it empties the fields a cancelled re-check left waiting, and HeldBackAnswerOnItsWay
+    // asks it of the pass in flight, so the two cannot disagree about which answer that is.
+    private bool AnswersSubmitProfile(PassScope pass) =>
+        pass.Kind != PassKind.Live || ReferenceEquals(pass.Profile, _options.SubmitProfile);
 
     /// <summary>Records the edit stamp a replacement of the stored submit answer was computed at, and empties the held-back set when the check that produced it read the current edit stamp.</summary>
     /// <param name="beganAtEditStamp">The edit stamp the replacing check read as it began.</param>
@@ -4977,6 +4975,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             _heldBackFields.Clear();
         }
+    }
+
+    /// <summary>Replaces the stored submit answer with every error and advisory of <paramref name="report"/>, each grouped by the field it lands on, and records the edit stamp it was computed at.</summary>
+    /// <param name="report">A load's or a refresh's whole-model answer under the submit profile.</param>
+    /// <param name="beganAtEditStamp">The edit stamp the check that produced it read as it began.</param>
+    private void StoreWholeModelAnswer(ValidationReport report, int beganAtEditStamp)
+    {
+        var (errors, advisories) = ResolveEach(report);
+        _submitVerdictErrors = GroupByResolvedField(errors);
+        _submitVerdictAdvisories = GroupByResolvedField(advisories);
+        RecordSubmitAnswer(beganAtEditStamp);
     }
 
     /// <inheritdoc />
@@ -5027,12 +5036,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // An adopted answer drops a validity check armed or waiting for this load, which
                 // keeps its probe from running an async rule a second time (AdoptFormValidity).
                 AdoptFormValidity(report, beganAtEditStamp);
-
-                var (errors, advisories) = ResolveEach(report);
-                _submitVerdictErrors = GroupByResolvedField(errors);
-                _submitVerdictAdvisories = GroupByResolvedField(advisories);
-                RecordSubmitAnswer(beganAtEditStamp);
-
+                StoreWholeModelAnswer(report, beganAtEditStamp);
                 adopted = AdoptLoadedValues(_submitVerdictErrors, profile);
             }).ConfigureAwait(false);
 
@@ -5272,8 +5276,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return type.GetElementType();
         }
 
-        // A type derives from List<T> or from Collection<T>, never both, so which is asked first
-        // decides nothing.
+        // No type derives from both List<T> and Collection<T>, so which is asked first decides
+        // nothing.
         if ((ClosedGenericType.Of(type, typeof(List<>))
                 ?? ClosedGenericType.Of(type, typeof(System.Collections.ObjectModel.Collection<>))) is { } list)
         {
@@ -5879,10 +5883,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // submit stay quiet until the next submit because no ledger watches them — and
                 // the gate needs nothing here to survive, because it was never an entry a rebuild
                 // could drop.
-                var (errors, advisories) = ResolveEach(report);
-                _submitVerdictErrors = GroupByResolvedField(errors);
-                _submitVerdictAdvisories = GroupByResolvedField(advisories);
-                RecordSubmitAnswer(beganAtEditStamp);
+                StoreWholeModelAnswer(report, beganAtEditStamp);
             }).ConfigureAwait(false);
     }
 
