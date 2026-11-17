@@ -469,6 +469,13 @@ public class FormidableEngineHandlerThrowTests : BunitContext
 
         var triggerThrow = await Record.ExceptionAsync(TriggerAsync);
         await UntilAsync(() => !armed());
+
+        // A check whose rule awaited can fault on a pool thread, and the engine hands that fault on
+        // from a work item of its own there, so no count of dispatcher turns is sure to come after
+        // it. Every row expects the throw at the boundary or on the renderer's unhandled path, so
+        // the wait is for either, bounded; the turns after it let anything else the throw caused
+        // show before the read.
+        await LandedAsync(cut);
         for (var i = 0; i < 5; i++)
         {
             await Settle(cut);
@@ -529,6 +536,24 @@ public class FormidableEngineHandlerThrowTests : BunitContext
         }
 
         Assert.True(condition());
+    }
+
+    // Polls, for at most five seconds, until the boundary shows a throw or the renderer's unhandled
+    // path has one, and answers nothing: the outcome's read says where the throw went, or that it
+    // went nowhere.
+    private async Task LandedAsync<TComponent>(IRenderedComponent<TComponent> cut)
+        where TComponent : IComponent
+    {
+        for (var waited = 0; waited < 500; waited++)
+        {
+            if (Renderer.UnhandledException.IsCompleted
+                || await cut.InvokeAsync(() => cut.FindAll("p.boundary-error").Count > 0))
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
     }
 
     // The dispatcher runs one piece of work at a time, so a no-op queued behind other work
