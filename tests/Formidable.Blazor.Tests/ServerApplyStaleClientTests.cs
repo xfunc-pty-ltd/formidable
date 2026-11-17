@@ -276,7 +276,7 @@ public class ServerApplyStaleClientTests : BunitContext
 
         using var cancel = new CancellationTokenSource();
         var submit = cut.InvokeAsync(() => engine.ValidateForSubmitAsync(cancel.Token));
-        Assert.True(await Until(() => rules.Gate.Runs == atOpen + 2));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == atOpen + 2));
         Assert.Equal([CodeTooShort], Messages(engine, code));
 
         cancel.Cancel();
@@ -328,7 +328,7 @@ public class ServerApplyStaleClientTests : BunitContext
         rules.Gate.Hold = true;
         using var cancel = new CancellationTokenSource();
         var load = cut.InvokeAsync(() => form.DiscloseLoadedValuesAsync(cancel.Token));
-        Assert.True(await Until(() => rules.Gate.Runs == runs + 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == runs + 1));
 
         await ApplyAsync(cut, new ValidationIssue(nameof(Ticket.Code), CodeTaken));
         Assert.Equal([CodeTaken], Messages(engine, code));
@@ -392,7 +392,7 @@ public class ServerApplyStaleClientTests : BunitContext
         model.Code = "ab";
         rules.Gate.Hold = true;
         var load = engine.DiscloseLoadedValuesAsync();
-        Assert.True(await Until(() => rules.Gate.Runs == 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == 1));
         rules.Gate.Fault();
         await load;
         Assert.Equal(1, replies);
@@ -425,14 +425,14 @@ public class ServerApplyStaleClientTests : BunitContext
         var modelLevel = new FieldIdentifier(model, string.Empty);
         model.Code = "ab";
         editContext.NotifyFieldChanged(code); // its live check runs no rule of Code's
-        Assert.True(await Until(() => !engine.IsValidating));
+        Assert.True(await EngineTestSync.UntilAsync(() => !engine.IsValidating));
 
         rules.Gate.Hold = true;
         engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
         Assert.Equal(1, _clock.RunZeroWaits()); // the reply's re-check starts and waits
-        Assert.True(await Until(() => rules.Gate.Runs == 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == 1));
         rules.Gate.Fault();
-        Assert.True(await Until(() => !engine.IsValidating));
+        Assert.True(await EngineTestSync.UntilAsync(() => !engine.IsValidating));
         Assert.Contains(engine.GetIssues(modelLevel), i => i.Message == new FormidableOptions().ValidationFaultMessage);
         Assert.Equal([CodeTaken], Messages(engine, code));
 
@@ -440,7 +440,7 @@ public class ServerApplyStaleClientTests : BunitContext
         rules.Gate.Hold = true;
         using var cancel = new CancellationTokenSource();
         var load = engine.DiscloseLoadedValuesAsync(cancel.Token);
-        Assert.True(await Until(() => rules.Gate.Runs == 2));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == 2));
         cancel.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
         Assert.Equal(0, _clock.ZeroWaits);
@@ -474,7 +474,7 @@ public class ServerApplyStaleClientTests : BunitContext
 
         model.Code = "ab";
         editContext.NotifyFieldChanged(code);
-        Assert.True(await Until(() => faults == 1 && !engine.IsValidating));
+        Assert.True(await EngineTestSync.UntilAsync(() => faults == 1 && !engine.IsValidating));
         Assert.True(ShowsFault(engine, model));
         var runs = rules.Runs;
 
@@ -511,7 +511,7 @@ public class ServerApplyStaleClientTests : BunitContext
 
         model.Code = "ab";
         editContext.NotifyFieldChanged(code);
-        Assert.True(await Until(() => faults == 1 && !engine.IsValidating));
+        Assert.True(await EngineTestSync.UntilAsync(() => faults == 1 && !engine.IsValidating));
         Assert.False(ShowsFault(engine, model));
         var runs = rules.Runs;
 
@@ -545,7 +545,7 @@ public class ServerApplyStaleClientTests : BunitContext
 
         model.Code = "ab";
         editContext.NotifyFieldChanged(code);
-        Assert.True(await Until(() => faults == 1 && !engine.IsValidating));
+        Assert.True(await EngineTestSync.UntilAsync(() => faults == 1 && !engine.IsValidating));
         engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
         Assert.Equal(0, _clock.ZeroWaits);
         var runs = rules.Runs;
@@ -553,7 +553,7 @@ public class ServerApplyStaleClientTests : BunitContext
         rules.Hold = true;
         using var cancel = new CancellationTokenSource();
         var load = engine.DiscloseLoadedValuesAsync(cancel.Token);
-        Assert.True(await Until(() => rules.Runs == runs + 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Runs == runs + 1));
         engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
         Assert.Equal(0, _clock.ZeroWaits);
         cancel.Cancel();
@@ -581,13 +581,13 @@ public class ServerApplyStaleClientTests : BunitContext
         var (engine, editContext) = BuildThrowing(model, rules, options);
         using var disposeEngine = engine;
         var code = CodeOf(model);
-        Assert.True(await Until(() => rules.Runs == 1 && !engine.IsValidating)); // the build's validity check threw
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Runs == 1 && !engine.IsValidating)); // the build's validity check threw
 
         rules.Throws = false;
         options.TrackFormValidity = false;
         model.Code = "ab";
         editContext.NotifyFieldChanged(code);
-        Assert.True(await Until(() => !engine.IsValidating));
+        Assert.True(await EngineTestSync.UntilAsync(() => !engine.IsValidating));
         Assert.Equal(1, rules.Runs);
 
         engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
@@ -613,13 +613,13 @@ public class ServerApplyStaleClientTests : BunitContext
             model, rules, new FormidableOptions { LiveDebounce = Timeout.InfiniteTimeSpan, TrackFormValidity = true });
         using var disposeEngine = engine;
         var code = CodeOf(model);
-        Assert.True(await Until(() => rules.Runs == 1 && !engine.IsValidating)); // the build's validity check threw
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Runs == 1 && !engine.IsValidating)); // the build's validity check threw
 
         rules.Throws = false;
         model.Code = "ab";
         editContext.NotifyFieldChanged(code); // arms the validity check
         _time.Advance(PastRefresh); // which fires and lands
-        Assert.True(await Until(() => rules.Runs == 2));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Runs == 2));
         await Task.Delay(50);
 
         engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
@@ -660,7 +660,7 @@ public class ServerApplyStaleClientTests : BunitContext
         rules.Gate.Hold = true;
         model.Code = "ab";
         editContext.NotifyFieldChanged(code);
-        Assert.True(await Until(() => rules.Gate.Runs == 1)); // the edit's check waits on the rule
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == 1)); // the edit's check waits on the rule
         if (change == "live-widened")
         {
             options.LiveProfile = null;
@@ -677,9 +677,9 @@ public class ServerApplyStaleClientTests : BunitContext
         // The edit's check lands first, so the re-check's zero wait runs with no check in flight to
         // wait for.
         rules.Gate.Release();
-        Assert.True(await Until(() => !engine.IsValidating));
+        Assert.True(await EngineTestSync.UntilAsync(() => !engine.IsValidating));
         await SettleEngineAsync();
-        Assert.True(await Until(() => !engine.IsValidating));
+        Assert.True(await EngineTestSync.UntilAsync(() => !engine.IsValidating));
         Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
     }
 
@@ -731,7 +731,7 @@ public class ServerApplyStaleClientTests : BunitContext
         rules.Gate.Hold = true;
         using var cancel = new CancellationTokenSource();
         var submit = cut.InvokeAsync(() => engine.ValidateForSubmitAsync(cancel.Token));
-        Assert.True(await Until(() => rules.Gate.Runs == runs + 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == runs + 1));
 
         await ApplyAsync(cut, new ValidationIssue(nameof(Ticket.Code), CodeTaken));
         Assert.Equal([CodeTaken], Messages(engine, code));
@@ -782,7 +782,7 @@ public class ServerApplyStaleClientTests : BunitContext
         rules.Gate.Hold = true;
         using var cancel = new CancellationTokenSource();
         var load = engine.DiscloseLoadedValuesAsync(cancel.Token);
-        Assert.True(await Until(() => rules.Gate.Runs == 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == 1));
         engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
         Assert.Equal([CodeTaken], Messages(engine, code));
         Assert.Equal(0, _clock.ZeroWaits);
@@ -835,17 +835,17 @@ public class ServerApplyStaleClientTests : BunitContext
         var rules = new AsyncTicketRules();
         var editContext = new EditContext(model);
         using var engine = new FormidableEngine<Ticket>(
-            model, editContext, new WholeProfile<Ticket>(new FluentValidationModelValidator<Ticket>(rules)),
+            model, editContext, new CapabilityHidingModelValidator<Ticket>(new FluentValidationModelValidator<Ticket>(rules)),
             new ReflectionModelIntrospector(), new FormidableOptions { TrackFormValidity = true }, _time,
             EngineTestSync.OneAtATime());
         var code = CodeOf(model);
-        Assert.True(await Until(() => rules.Gate.Runs == 1 && !engine.IsValidating)); // the probe the build starts
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == 1 && !engine.IsValidating)); // the probe the build starts
 
         model.Code = "ab";
         rules.Gate.Hold = true;
         using var cancel = new CancellationTokenSource();
         var load = engine.DiscloseLoadedValuesAsync(cancel.Token);
-        Assert.True(await Until(() => rules.Gate.Runs == 2));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == 2));
         engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
         Assert.Equal([CodeTaken], Messages(engine, code));
 
@@ -858,7 +858,7 @@ public class ServerApplyStaleClientTests : BunitContext
             await Task.Delay(10);
         }
 
-        Assert.True(await Until(() => !engine.IsValidating && Messages(engine, code).Count == 2));
+        Assert.True(await EngineTestSync.UntilAsync(() => !engine.IsValidating && Messages(engine, code).Count == 2));
         await Task.Delay(50);
         Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
         Assert.Equal(3, rules.Gate.Runs);
@@ -1007,7 +1007,7 @@ public class ServerApplyStaleClientTests : BunitContext
         await EditAsync(cut, "Code", "ab");
         var runs = rules.Gate.Runs;
         await cut.InvokeAsync(() => _time.Advance(PastRefresh)); // the validity check fires
-        Assert.True(await Until(() => rules.Gate.Runs == runs + 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == runs + 1));
         Assert.Equal(Valid, engine.EditContext.FieldCssClass(name));
 
         await ApplyAsync(cut, new ValidationIssue(nameof(Account.Code), CodeTaken));
@@ -1018,7 +1018,7 @@ public class ServerApplyStaleClientTests : BunitContext
         Assert.Equal(Valid, engine.EditContext.FieldCssClass(name));
 
         rules.Gate.Release();
-        Assert.True(await Until(() => _clock.ZeroWaits == 1)); // the probe landed and armed it
+        Assert.True(await EngineTestSync.UntilAsync(() => _clock.ZeroWaits == 1)); // the probe landed and armed it
         Assert.Equal(Valid, engine.EditContext.FieldCssClass(name));
         await SettleAsync(cut, engine);
         await SettleAsync(cut, engine);
@@ -1048,7 +1048,7 @@ public class ServerApplyStaleClientTests : BunitContext
         rules.Gate.Hold = true;
         var runs = rules.Gate.Runs;
         await EditAsync(cut, "Code", "ab");
-        Assert.True(await Until(() => rules.Gate.Runs == runs + 1)); // the edit's probe waits
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == runs + 1)); // the edit's probe waits
 
         await ApplyAsync(cut, new ValidationIssue(nameof(Ticket.Code), CodeTaken));
         Assert.Equal([CodeTaken], Messages(engine, code));
@@ -1056,7 +1056,7 @@ public class ServerApplyStaleClientTests : BunitContext
         Assert.Equal(runs + 1, rules.Gate.Runs);
 
         rules.Gate.Release();
-        Assert.True(await Until(() => _clock.ZeroWaits == 1)); // the probe landed and armed it
+        Assert.True(await EngineTestSync.UntilAsync(() => _clock.ZeroWaits == 1)); // the probe landed and armed it
         await SettleAsync(cut, engine);
         await SettleAsync(cut, engine);
         Assert.Equal(runs + 1, rules.Gate.Runs);
@@ -1082,13 +1082,13 @@ public class ServerApplyStaleClientTests : BunitContext
             model, editContext, new FluentValidationModelValidator<Ticket>(rules), new ReflectionModelIntrospector(),
             TicketOptions("draft+tracking"), _clock, EngineTestSync.OneAtATime());
         var code = CodeOf(model);
-        Assert.True(await Until(() => rules.Gate.Runs == 1)); // the probe the build starts
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == 1)); // the probe the build starts
 
         rules.Gate.Hold = true;
         var runs = rules.Gate.Runs;
         model.Code = "ab";
         editContext.NotifyFieldChanged(code); // its probe starts and waits on the rule
-        Assert.True(await Until(() => rules.Gate.Runs == runs + 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == runs + 1));
         engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
         Assert.Equal([CodeTaken], Messages(engine, code));
         Assert.Equal(0, _clock.ZeroWaits); // the re-check waits for the probe
@@ -1102,11 +1102,11 @@ public class ServerApplyStaleClientTests : BunitContext
             }
         };
         rules.Gate.Release();
-        Assert.True(await Until(() => _clock.ZeroWaits == 1)); // the probe's exit armed it
+        Assert.True(await EngineTestSync.UntilAsync(() => _clock.ZeroWaits == 1)); // the probe's exit armed it
         Assert.Equal(1, Volatile.Read(ref thrown));
 
         _clock.RunZeroWaits();
-        Assert.True(await Until(() => !engine.IsValidating && Messages(engine, code).Count == 2));
+        Assert.True(await EngineTestSync.UntilAsync(() => !engine.IsValidating && Messages(engine, code).Count == 2));
         Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
         Assert.Equal(runs + 1, rules.Gate.Runs);
     }
@@ -1137,14 +1137,14 @@ public class ServerApplyStaleClientTests : BunitContext
                 }
             });
         var code = CodeOf(model);
-        Assert.True(await Until(() => rules.Gate.Runs == 1 && !engine.IsValidating)); // the probe the build starts
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == 1 && !engine.IsValidating)); // the probe the build starts
 
         rules.Gate.Hold = true;
         var runs = rules.Gate.Runs;
         model.Code = "ab";
         editContext.NotifyFieldChanged(code); // arms the validity check
         _time.Advance(PastRefresh); // which fires and waits on the rule
-        Assert.True(await Until(() => rules.Gate.Runs == runs + 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == runs + 1));
 
         var thrown = 0;
         engine.StateChanged += (_, _) =>
@@ -1155,7 +1155,7 @@ public class ServerApplyStaleClientTests : BunitContext
             }
         };
         rules.Gate.Fault();
-        Assert.True(await Until(() => Volatile.Read(ref thrown) == 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => Volatile.Read(ref thrown) == 1));
         lock (sync)
         {
             model.Code = "abc";
@@ -1199,15 +1199,15 @@ public class ServerApplyStaleClientTests : BunitContext
         validator.HoldDraft = true;
         model.Code = "ab";
         editContext.NotifyFieldChanged(code); // a narrowed live check, held, and a validity check beside it
-        Assert.True(await Until(() => validator.DraftWaiting == 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => validator.DraftWaiting == 1));
 
         validator.HoldSubmit = true;
         using var cancel = new CancellationTokenSource();
         var load = engine.DiscloseLoadedValuesAsync(cancel.Token);
-        Assert.True(await Until(() => validator.SubmitWaiting == 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => validator.SubmitWaiting == 1));
         cancel.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
-        Assert.True(await Until(() => validator.DraftWaiting == 2)); // the given-back live check
+        Assert.True(await EngineTestSync.UntilAsync(() => validator.DraftWaiting == 2)); // the given-back live check
 
         rules.Throws = true;
         validator.HoldSubmit = false;
@@ -1220,11 +1220,11 @@ public class ServerApplyStaleClientTests : BunitContext
             }
         };
         _time.Advance(PastRefresh); // the validity check the load owes fires, and throws
-        Assert.True(await Until(() => Volatile.Read(ref thrown) == 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => Volatile.Read(ref thrown) == 1));
 
         rules.Throws = false;
         validator.ReleaseDraft();
-        Assert.True(await Until(() => !engine.IsValidating));
+        Assert.True(await EngineTestSync.UntilAsync(() => !engine.IsValidating));
         lock (sync)
         {
             engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
@@ -1232,7 +1232,7 @@ public class ServerApplyStaleClientTests : BunitContext
         }
 
         _clock.RunZeroWaits();
-        Assert.True(await Until(() => !engine.IsValidating && Messages(engine, code).Count == 2));
+        Assert.True(await EngineTestSync.UntilAsync(() => !engine.IsValidating && Messages(engine, code).Count == 2));
         Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
     }
 
@@ -1253,7 +1253,7 @@ public class ServerApplyStaleClientTests : BunitContext
         var code = CodeOf(model);
         model.Code = "ab";
         editContext.NotifyFieldChanged(code); // its live check runs no rule of Code's
-        Assert.True(await Until(() => !engine.IsValidating));
+        Assert.True(await EngineTestSync.UntilAsync(() => !engine.IsValidating));
 
         var thrown = 0;
         engine.StateChanged += (_, _) =>
@@ -1269,7 +1269,7 @@ public class ServerApplyStaleClientTests : BunitContext
 
         Assert.Equal(1, _clock.ZeroWaits);
         _clock.RunZeroWaits();
-        Assert.True(await Until(() => !engine.IsValidating && Messages(engine, code).Count == 2));
+        Assert.True(await EngineTestSync.UntilAsync(() => !engine.IsValidating && Messages(engine, code).Count == 2));
         Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
     }
 
@@ -1301,7 +1301,7 @@ public class ServerApplyStaleClientTests : BunitContext
         var runs = rules.Gate.Runs;
         await ApplyAsync(cut, new ValidationIssue(nameof(Ticket.Code), CodeTaken));
         await cut.InvokeAsync(() => _clock.RunZeroWaits());
-        Assert.True(await Until(() => rules.Gate.Runs == runs + 1)); // the re-check about "ab" waits
+        Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == runs + 1)); // the re-check about "ab" waits
         Assert.Equal([CodeTaken], Messages(engine, code));
 
         await EditAsync(cut, "Code", "abcd");
@@ -1353,14 +1353,14 @@ public class ServerApplyStaleClientTests : BunitContext
         {
             var before = form.Rules.Gate.Runs;
             pass = form.Engine.ValidateForSubmitAsync();
-            Assert.True(await Until(() => form.Rules.Gate.Runs == before + 1));
+            Assert.True(await EngineTestSync.UntilAsync(() => form.Rules.Gate.Runs == before + 1));
             foreach (var other in new[] { "y", "z" })
             {
                 var check = form.Rules.Gate.Runs;
                 form.Model.Other = other;
                 form.Notify(nameof(Member.Other));
                 form.Rules.Gate.ReleaseHeldRuns(); // that check's answer predates the edit
-                Assert.True(await Until(() => form.Rules.Gate.Runs == check + 1));
+                Assert.True(await EngineTestSync.UntilAsync(() => form.Rules.Gate.Runs == check + 1));
             }
 
             form.Model.Name = "Ada";
@@ -1373,7 +1373,7 @@ public class ServerApplyStaleClientTests : BunitContext
         {
             var before = form.Rules.Gate.Runs;
             pass = form.Engine.DiscloseLoadedValuesAsync(cancel.Token);
-            Assert.True(await Until(() => form.Rules.Gate.Runs == before + 1));
+            Assert.True(await EngineTestSync.UntilAsync(() => form.Rules.Gate.Runs == before + 1));
             form.Model.Name = "Ada";
             form.Notify(nameof(Member.Name)); // during the load
             runs = form.Rules.Gate.Runs;
@@ -1381,7 +1381,7 @@ public class ServerApplyStaleClientTests : BunitContext
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pass);
         }
 
-        Assert.True(await Until(() => form.Rules.Gate.Runs == runs + 1)); // the given-back check waits
+        Assert.True(await EngineTestSync.UntilAsync(() => form.Rules.Gate.Runs == runs + 1)); // the given-back check waits
         Assert.True(form.Engine.IsValidating);
 
         form.Engine.ApplyServerIssues([new ValidationIssue(nameof(Member.Name), Member.NameTaken)]);
@@ -1414,11 +1414,11 @@ public class ServerApplyStaleClientTests : BunitContext
 
         form.Rules.Gate.Hold = true;
         var submit = form.Engine.ValidateForSubmitAsync();
-        Assert.True(await Until(() => form.Rules.Gate.Runs == before + 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => form.Rules.Gate.Runs == before + 1));
         form.Model.Name = "Ad";
         form.Notify(nameof(Member.Name)); // outdates the first check
         form.Rules.Gate.ReleaseHeldRuns();
-        Assert.True(await Until(() => form.Rules.Gate.Runs == before + 2)); // the second check waits
+        Assert.True(await EngineTestSync.UntilAsync(() => form.Rules.Gate.Runs == before + 2)); // the second check waits
 
         form.Engine.ApplyServerIssues([new ValidationIssue(nameof(Member.Name), Member.NameTaken)]);
         Assert.Equal([Member.NameTaken], form.Messages(nameof(Member.Name)));
@@ -1453,14 +1453,14 @@ public class ServerApplyStaleClientTests : BunitContext
 
         form.Rules.Gate.Hold = true;
         var submit = form.Engine.ValidateForSubmitAsync();
-        Assert.True(await Until(() => form.Rules.Gate.Runs == before + 1));
+        Assert.True(await EngineTestSync.UntilAsync(() => form.Rules.Gate.Runs == before + 1));
         foreach (var other in new[] { "y", "z" })
         {
             var check = form.Rules.Gate.Runs;
             form.Model.Other = other;
             form.Notify(nameof(Member.Other));
             form.Rules.Gate.ReleaseHeldRuns(); // that check's answer predates the edit
-            Assert.True(await Until(() => form.Rules.Gate.Runs == check + 1));
+            Assert.True(await EngineTestSync.UntilAsync(() => form.Rules.Gate.Runs == check + 1));
         }
 
         form.Engine.ApplyServerIssues([new ValidationIssue(nameof(Member.Name), "Name looks odd", ValidationSeverity.Warning)]);
@@ -1519,7 +1519,7 @@ public class ServerApplyStaleClientTests : BunitContext
             var opened = rules.Gate.Runs;
             rules.Gate.Hold = true;
             load = cut.InvokeAsync(() => form.DiscloseLoadedValuesAsync()); // starts and waits
-            Assert.True(await Until(() => rules.Gate.Runs == opened + 1));
+            Assert.True(await EngineTestSync.UntilAsync(() => rules.Gate.Runs == opened + 1));
         }
 
         Assert.True(engine.IsValidating);
@@ -1834,16 +1834,6 @@ public class ServerApplyStaleClientTests : BunitContext
         await cut.InvokeAsync(() => _clock.RunZeroWaits());
         cut.WaitForState(() => !engine.IsValidating);
         await cut.InvokeAsync(() => { });
-    }
-
-    private static async Task<bool> Until(Func<bool> condition)
-    {
-        for (var waited = 0; waited < 500 && !condition(); waited++)
-        {
-            await Task.Delay(10);
-        }
-
-        return condition();
     }
 
     private static void AddInput(RenderTreeBuilder builder, int region, string entry, object receiver, Expression<Func<string?>> accessor, Action<string?> assign, object? key = null)
@@ -2416,7 +2406,7 @@ public class ServerApplyStaleClientTests : BunitContext
             IModelValidator<Member> validator = new FluentValidationModelValidator<Member>(rules);
             if (wholeProfile)
             {
-                validator = new WholeProfile<Member>(validator);
+                validator = new CapabilityHidingModelValidator<Member>(validator);
             }
 
             var options = new FormidableOptions { DisclosureOverride = everyFieldShows ? _ => true : null };
@@ -2446,15 +2436,6 @@ public class ServerApplyStaleClientTests : BunitContext
             });
     }
 
-    /// <summary>Hides the rule-by-rule seam, so every check is one whole-profile call that can reuse no stored answer.</summary>
-    private sealed class WholeProfile<TModel>(IModelValidator<TModel> inner) : IModelValidator<TModel>
-    {
-        public Task<ValidationReport> ValidateAsync(TModel model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
-            inner.ValidateAsync(model, profile, cancellationToken);
-
-        public ValidationReport Validate(TModel model, ValidationProfile profile) => inner.Validate(model, profile);
-    }
-
     internal sealed record MemberForm(FormidableEngine<Member> Engine, EditContext EditContext, Member Model, MemberRules Rules) : IDisposable
     {
         public void Notify(string field) => EditContext.NotifyFieldChanged(new FieldIdentifier(Model, field));
@@ -2470,7 +2451,7 @@ public class ServerApplyStaleClientTests : BunitContext
                 await Task.Delay(5);
             }
 
-            Assert.True(await Until(() => !Engine.IsValidating));
+            Assert.True(await EngineTestSync.UntilAsync(() => !Engine.IsValidating));
         }
 
         public void Dispose() => Engine.Dispose();

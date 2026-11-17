@@ -719,7 +719,7 @@ public class AttachJoinTests : BunitContext
     [Fact]
     public async Task A_blocked_submit_on_a_static_renderer_makes_no_focus_move()
     {
-        var focus = new StaticRenderFocusService();
+        var focus = StaticRenderFocusService();
         Services.AddSingleton<IFormidableFocusService>(focus);
         SetRendererInfo(new RendererInfo("Static", isInteractive: false));
         var page = RenderPage(new Signup());
@@ -729,7 +729,7 @@ public class AttachJoinTests : BunitContext
 
         Assert.Equal(["invalid"], _callbacks);
         Assert.Contains(NameRequired, page.Cut.Markup, StringComparison.Ordinal);
-        Assert.Equal(0, focus.Calls);
+        Assert.Empty(focus.Requests);
         Assert.False(Renderer.UnhandledException.IsCompleted);
     }
 
@@ -1188,7 +1188,7 @@ public class AttachJoinTests : BunitContext
     [Fact]
     public async Task An_OnSubmit_pages_blocked_submit_on_a_static_renderer_makes_no_focus_move()
     {
-        var focus = new StaticRenderFocusService();
+        var focus = StaticRenderFocusService();
         Services.AddSingleton<IFormidableFocusService>(focus);
         SetRendererInfo(new RendererInfo("Static", isInteractive: false));
         FormidableValidator<Signup>? validator = null;
@@ -1203,7 +1203,7 @@ public class AttachJoinTests : BunitContext
 
         Assert.False(outcome!.CanProceed);
         Assert.Contains(NameRequired, page.Cut.Markup, StringComparison.Ordinal);
-        Assert.Equal(0, focus.Calls);
+        Assert.Empty(focus.Requests);
         Assert.False(Renderer.UnhandledException.IsCompleted);
     }
 
@@ -1240,18 +1240,12 @@ public class AttachJoinTests : BunitContext
         Assert.Empty(_focus.Requests);
     }
 
-    /// <summary>A focus service that throws as Blazor's script runtime throws during a static render.</summary>
-    private sealed class StaticRenderFocusService : IFormidableFocusService
+    /// <summary>A focus service that records each request and then throws, as Blazor's script runtime throws during a static render.</summary>
+    private static RecordingFocusService StaticRenderFocusService() => new()
     {
-        public int Calls { get; private set; }
-
-        public ValueTask<bool> FocusAsync(FieldIdentifier field)
-        {
-            Calls++;
-            throw new InvalidOperationException(
-                "JavaScript interop calls cannot be issued at this time. This is because the component is being statically rendered.");
-        }
-    }
+        OnFocus = _ => throw new InvalidOperationException(
+            "JavaScript interop calls cannot be issued at this time. This is because the component is being statically rendered."),
+    };
 
     /// <summary>
     /// Cascades an <see cref="EditContext"/> the host owns, rebuilt whenever <see cref="Model"/> is
