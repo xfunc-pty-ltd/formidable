@@ -262,11 +262,11 @@ public sealed partial class FluentValidationModelValidator<TModel>
         // more, judged per row rather than per model: RuleForEach(...).Where and its
         // asynchronous twin, stored as the rule's Filter/AsyncFilter rather than as
         // condition flags. Which rows a filter admits is as unanswerable without a model
-        // as any When, so a filtered rule is conditional the same way.
-        var ruleConditional = conditional
-            || rule.HasCondition
-            || rule.HasAsyncCondition
-            || HasRowFilter(rule, collectionRuleType);
+        // as any When, so a filtered rule is conditional the same way. The rule's own components
+        // take the row filter and its dependents do not (below), so the condition the two share
+        // is read apart from it.
+        var ruleGated = conditional || rule.HasCondition || rule.HasAsyncCondition;
+        var ruleConditional = ruleGated || HasRowFilter(rule, collectionRuleType);
 
         foreach (var component in rule.Components)
         {
@@ -337,9 +337,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
             // whose every check carries a condition can skip them without failing. A row filter
             // only skips rows inside that rule, and the dependents run after the rows whatever it
             // skipped, so it leaves them as unconditional as the rule itself.
-            var dependentsConditional = conditional
-                || rule.HasCondition
-                || rule.HasAsyncCondition
+            var dependentsConditional = ruleGated
                 || !EveryFailureBlocks(rule)
                 || (collectionRuleType is not null && EveryComponentConditional(rule));
             foreach (var dependent in dependents)
@@ -358,34 +356,15 @@ public sealed partial class FluentValidationModelValidator<TModel>
     // included, so a carrying rule that can fail without blocking lets a submit pass without its
     // dependents having run. A severity that cannot be read answers Blocks, as ReadSeverity's
     // other callers take it.
-    private static bool EveryFailureBlocks(IValidationRule rule)
-    {
-        foreach (var component in rule.Components)
-        {
-            if (component.Validator is IChildValidatorAdaptor || ReadSeverity(component) != SeverityReading.Blocks)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
+    private static bool EveryFailureBlocks(IValidationRule rule) =>
+        rule.Components.All(static component =>
+            component.Validator is not IChildValidatorAdaptor && ReadSeverity(component) == SeverityReading.Blocks);
 
     /// <summary>Whether every component of <paramref name="rule"/> carries a condition, synchronous or asynchronous.</summary>
     /// <param name="rule">The rule on each row carrying dependent rules.</param>
     /// <returns><see langword="true"/> when no component runs unconditionally, a rule with no component included.</returns>
-    private static bool EveryComponentConditional(IValidationRule rule)
-    {
-        foreach (var component in rule.Components)
-        {
-            if (!component.HasCondition && !component.HasAsyncCondition)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
+    private static bool EveryComponentConditional(IValidationRule rule) =>
+        rule.Components.All(static component => component.HasCondition || component.HasAsyncCondition);
 
     /// <summary>The path a rule's own components file under, and the prefix a child validator it carries is read under.</summary>
     /// <param name="prefix">The path travelled so far, empty or ending in a dot.</param>

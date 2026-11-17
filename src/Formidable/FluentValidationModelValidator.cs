@@ -19,15 +19,11 @@ namespace Formidable;
 public sealed partial class FluentValidationModelValidator<TModel>
     : IModelValidator<TModel>, IRuleLevelValidator<TModel>, IRuleInspectingValidator<TModel>
 {
-    private const int Unread = 0;
-    private const int Absent = 1;
-    private const int Present = 2;
-
     private readonly IValidator<TModel> _validator;
 
     private SelectedRulesSnapshot? _selectedRules;
 
-    // Each one of the three constants above; an int, so a read is never torn.
+    // The answers of OverridesPreValidate and OverridesValidateAsync, as RememberedAnswer keeps them.
     private int _preValidateOverride;
     private int _validateAsyncOverride;
 
@@ -79,36 +75,21 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <param name="validator">The wrapped validator.</param>
     /// <returns><see langword="true"/> when the override is declared by the validator's class or inherited from a base between it and <see cref="AbstractValidator{T}"/>.</returns>
     // Kept because the answer belongs to the validator's class, which never changes under this
-    // instance, while the capability is read at every field's class computation. Two threads
-    // asking at once both work it out and write the same answer.
-    private bool OverridesPreValidate(AbstractValidator<TModel> validator)
-    {
-        var known = _preValidateOverride;
-        if (known == Unread)
-        {
-            known = PreValidateBinding.IsOverriddenBy(validator) ? Present : Absent;
-            _preValidateOverride = known;
-        }
-
-        return known == Present;
-    }
+    // instance, while the capability is read at every field's class computation.
+    private bool OverridesPreValidate(AbstractValidator<TModel> validator) =>
+        RememberedAnswer.Read(
+            ref _preValidateOverride, validator, static wrapped => PreValidateBinding.IsOverriddenBy(wrapped));
 
     /// <summary>Whether the class of <paramref name="validator"/>, the wrapped validator, overrides <c>ValidateAsync(ValidationContext&lt;T&gt;, CancellationToken)</c>; worked out on the first ask and kept, as <see cref="OverridesPreValidate"/> is.</summary>
     /// <param name="validator">The wrapped validator.</param>
     /// <returns><see langword="true"/> when the override is declared by the validator's class or inherited from a base between it and <see cref="AbstractValidator{T}"/>.</returns>
     // The rule-level path is async alone, so the synchronous Validate is never reached from it
     // and an override of that one leaves the capability on.
-    private bool OverridesValidateAsync(AbstractValidator<TModel> validator)
-    {
-        var known = _validateAsyncOverride;
-        if (known == Unread)
-        {
-            known = EntryPointOverrides<TModel>.OverridesValidateAsync(validator) ? Present : Absent;
-            _validateAsyncOverride = known;
-        }
-
-        return known == Present;
-    }
+    private bool OverridesValidateAsync(AbstractValidator<TModel> validator) =>
+        RememberedAnswer.Read(
+            ref _validateAsyncOverride,
+            validator,
+            static wrapped => EntryPointOverrides<TModel>.OverridesValidateAsync(wrapped));
 
     /// <summary>Finds a <c>PreValidate</c> override among the methods the validator's class and its bases declare.</summary>
     // The base declaration comes from a delegate this class binds to itself, never from a lookup

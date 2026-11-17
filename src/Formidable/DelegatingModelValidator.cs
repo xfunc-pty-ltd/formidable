@@ -21,15 +21,11 @@ namespace Formidable;
 public abstract class DelegatingModelValidator<TModel>
     : IModelValidator<TModel>, IRuleInspectingValidator<TModel>, IRuleLevelValidator<TModel>
 {
-    private const int Unread = 0;
-    private const int Absent = 1;
-    private const int Present = 2;
-
     private readonly IModelValidator<TModel> _inner;
     private readonly IRuleInspectingValidator<TModel>? _inspector;
     private readonly IRuleLevelValidator<TModel>? _ruleLevel;
 
-    // One of the three constants above; an int, so a read is never torn.
+    // ValidateAsyncOverriddenAlone's answer, as RememberedAnswer keeps it.
     private int _validateAsyncOverriddenAlone;
 
     /// <summary>Wraps <paramref name="inner"/>, resolving which capability interfaces it implements once here; its testers are read on every call.</summary>
@@ -95,19 +91,9 @@ public abstract class DelegatingModelValidator<TModel>
     /// <summary>Whether a form taking this validator rule by rule would miss its <see cref="ValidateAsync"/> override; worked out on the first ask and kept.</summary>
     /// <returns><see langword="true"/> when the class declaring the <see cref="ValidateAsync"/> a call reaches derives from the class declaring the <see cref="ValidateRulesAsync"/> a call reaches.</returns>
     // Kept because the answer belongs to this instance's class, which never changes, while the
-    // capability is read at every field's class computation. Two threads asking at once both work
-    // it out and write the same answer.
-    private bool ValidateAsyncOverriddenAlone()
-    {
-        var known = _validateAsyncOverriddenAlone;
-        if (known == Unread)
-        {
-            known = EntryPointsDisagree() ? Present : Absent;
-            _validateAsyncOverriddenAlone = known;
-        }
-
-        return known == Present;
-    }
+    // capability is read at every field's class computation.
+    private bool ValidateAsyncOverriddenAlone() =>
+        RememberedAnswer.Read(ref _validateAsyncOverriddenAlone, this, static self => self.EntryPointsDisagree());
 
     // Each entry point is bound as a C# method group on this instance. A method group on a
     // virtual method resolves the override a call reaches, so each delegate's Method names the
@@ -127,8 +113,10 @@ public abstract class DelegatingModelValidator<TModel>
         Func<TModel, ValidationProfile, IReadOnlyList<RuleIdentity>, CancellationToken, Task<RuleLevelResult>> byRule =
             ValidateRulesAsync;
         var byRuleOwner = byRule.Method.DeclaringType;
-        return byRuleOwner == typeof(DelegatingModelValidator<TModel>)
-            || (byRuleOwner is not null && validateOwner.IsSubclassOf(byRuleOwner));
+
+        // By here validateOwner derives from this class, so a ValidateRulesAsync this class
+        // declares is one the subclass test finds above it.
+        return byRuleOwner is not null && validateOwner.IsSubclassOf(byRuleOwner);
     }
 
     /// <summary>The wrapped validator's own identities for the rules <paramref name="profile"/> selects, which <see cref="ValidateRulesAsync"/> hands back to it.</summary>
