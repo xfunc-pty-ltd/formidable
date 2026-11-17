@@ -370,14 +370,19 @@ stands down on the count read again as it starts (below).
 A newer call's move can run before that call's callback, when another delegate still holds the call
 open. A lock bound to the flag has lifted by then too, so the move still finds its field enabled.
 
-Focus follows `ValidateForSubmitAsync()`, except that no move is made once a newer submit's check
-has begun (`SubmitChecksBegun` moved), as `FormidableForm` does. A load does not move that count,
-so a submit a load superseded moves focus to the first error then showing.
+Focus follows `ValidateForSubmitAsync()`. Neither makes a move once a newer submit's check has
+begun (`SubmitChecksBegun` moved), as `FormidableForm` does. The join reads the count again as its
+move starts, and checks that the root still holds the engine. A load does not move that count, so a
+submit a load superseded moves focus to the first error then showing.
 
-Nor is a move made on a renderer that declares itself static (`RendererInfo.IsInteractive` false),
-which is where a form posted on a static render, or in a prerender, runs the request. A move whose
-script call fails (`IsInteropFailure`) moves nothing. Either way the blocked answer stands and
-nothing reaches the boundary.
+Nor does either make a move on a renderer that declares itself static (`RendererInfo.IsInteractive`
+false), which is where a form posted on a static render, or in a prerender, runs the submit.
+
+The join alone also catches a focus-service call that fails as a script call does
+(`IsInteropFailure`). The catch holds that call and its retry only (`FirstErrorFocus`'s
+`scriptFailureEndsMove`): the move ends with nothing moved, the blocked answer stands, and nothing
+reaches the boundary. A throw from the page's `PrepareFocus` or `FocusFallback` is not caught
+there, whatever its type. `ValidateForSubmitAsync()` throws a failed script call to its caller.
 
 One answer is stricter than `CanProceed`. A server reply applied while a passing submit checks
 stands (`SupersedesServerAnswer` keeps it for a submit begun before it). The outcome may proceed

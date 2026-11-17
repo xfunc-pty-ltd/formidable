@@ -1113,7 +1113,7 @@ throws. Replacing that `EditContext` rebuilds the engine.
 
 | When | What you see |
 |---|---|
-| A submit blocks, through `ValidateForSubmitAsync()` or, on .NET 11, through the `EditForm`'s own validation | Focus lands on the first error as under `FormidableForm`: same `FocusFirstErrorOnInvalidSubmit` switch, `PrepareFocus` awaited, `FocusFallback` threaded in. |
+| A submit blocks, through `ValidateForSubmitAsync()` or, on .NET 11, through the `EditForm`'s own validation | Focus lands on the first error as under `FormidableForm`: same `FocusFirstErrorOnInvalidSubmit` switch, `PrepareFocus` awaited, `FocusFallback` threaded in. No move is made once a newer submit has begun. Nor is one made on a static render or a prerender (a post to an `EditForm` with a `FormName`), where no script can run: `ValidateForSubmitAsync()` still returns its blocked outcome, and on .NET 11 the `EditForm` still calls `OnInvalidSubmit`. |
 | That first error is the form's own message, because every failing field is hidden | The move aims at the form, which takes focus only where the page writes the model-level id and `tabindex="-1"` on its `EditForm` (the attribute table below). Without them the move misses, and a `FocusFallback` is handed the model-level field, whose `FieldName` is empty. |
 | A summary lists issues, or "first" is chosen | The engine's order, not the page's: nothing here resolves where the fields sit ([Migration guide](migration-guide.md#attach-mode-lists-issues-in-the-engines-order-not-the-pages)). |
 | The page gives [the guard that recovers a displaced click](#the-click-a-disclosure-displaces) neither of the two elements it looks for | That section's diagnostic, once per context: it stays until the cascaded `EditContext` is replaced. |

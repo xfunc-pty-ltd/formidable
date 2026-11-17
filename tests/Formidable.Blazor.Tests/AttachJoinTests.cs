@@ -19,6 +19,7 @@ namespace Formidable.Blazor.Tests;
 /// with a <see cref="FormidableValidator{TModel}"/> inside it. On .NET 11 the validator answers the
 /// form's validation request with its own submit, so <c>EditForm</c> picks the callback that submit
 /// earns. On .NET 10 nothing answers the request, and a pristine form reaches <c>OnValidSubmit</c>.
+/// The same page wired with <c>OnSubmit</c> calls <c>ValidateForSubmitAsync()</c> on both.
 /// </summary>
 /// <remarks>
 /// Name must hold a value and warns on "Bo"; Email must hold a value with an "@" in it; Other has an
@@ -1177,6 +1178,67 @@ public class AttachJoinTests : BunitContext
         Assert.Equal(0, page.Rules.Runs);
     }
 #endif
+
+    // The OnSubmit route on a static renderer (a form posted with no render mode, or in the
+    // prerender of a page that names its form): the blocked submit makes no focus move, so the
+    // focus service, which throws as Blazor's script runtime does there, is never called, and the
+    // page's handler gets the blocked outcome rather than an exception.
+    // Mutation that must break it: move focus whatever the renderer says. The service's throw then
+    // leaves ValidateForSubmitAsync(), and bUnit rethrows it from the submit.
+    [Fact]
+    public async Task An_OnSubmit_pages_blocked_submit_on_a_static_renderer_makes_no_focus_move()
+    {
+        var focus = new StaticRenderFocusService();
+        Services.AddSingleton<IFormidableFocusService>(focus);
+        SetRendererInfo(new RendererInfo("Static", isInteractive: false));
+        FormidableValidator<Signup>? validator = null;
+        SubmitOutcome? outcome = null;
+        var page = RenderPage(
+            new Signup(),
+            onSubmit: async _ => outcome = await validator!.ValidateForSubmitAsync());
+        validator = page.Validator;
+
+        await page.SubmitAsync();
+        await page.Cut.InvokeAsync(() => { });
+
+        Assert.False(outcome!.CanProceed);
+        Assert.Contains(NameRequired, page.Cut.Markup, StringComparison.Ordinal);
+        Assert.Equal(0, focus.Calls);
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+    }
+
+    // The OnSubmit route under a second press while the first submit still checks, on a form whose
+    // warning is there to move to. The second saves; the first, overtaken, answers blocked with
+    // nothing of its own, and moves no focus once its answer arrives: the newer submit decided.
+    // Mutation that must break it: drop the newer-submit test from ValidateForSubmitAsync()'s move.
+    // The first then takes focus to the warning on Name after the second has saved.
+    [Fact]
+    public async Task An_OnSubmit_pages_overtaken_first_submit_moves_no_focus_after_the_second_saves()
+    {
+        FormidableValidator<Signup>? validator = null;
+        var outcomes = new List<SubmitOutcome>();
+        var page = RenderPage(
+            new Signup { Name = "Bo", Email = "a@b" },
+            onSubmit: async _ => outcomes.Add(await validator!.ValidateForSubmitAsync()));
+        validator = page.Validator;
+        await page.SubmitAsync();
+        Assert.Contains(BoUnusual, page.Cut.Markup, StringComparison.Ordinal);
+        outcomes.Clear();
+
+        page.Rules.HoldNextRun(ignoresToken: true);
+        var first = await page.StartSubmitAsync();
+        Assert.True(await UntilAsync(() => page.Rules.Runs == 2));
+
+        await page.SubmitAsync();
+        Assert.True(Assert.Single(outcomes).CanProceed);
+
+        await page.Cut.InvokeAsync(page.Rules.ReleaseHeldRun);
+        await first;
+        await page.Cut.InvokeAsync(() => { });
+
+        Assert.Equal([true, false], outcomes.Select(o => o.CanProceed));
+        Assert.Empty(_focus.Requests);
+    }
 
     /// <summary>A focus service that throws as Blazor's script runtime throws during a static render.</summary>
     private sealed class StaticRenderFocusService : IFormidableFocusService

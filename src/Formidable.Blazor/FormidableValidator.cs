@@ -272,7 +272,8 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// A value edited while the check runs makes it check again before it reports, at most twice,
     /// so an outcome that may proceed answers for the values the model holds as the check ends. A
     /// replaced <see cref="EditContext"/> or a disposal while the submit awaits its answer
-    /// abandons it, and focus stays. Call it from the renderer's synchronization context.
+    /// abandons it, and focus stays. Focus also stays once a newer submit has begun, and on a
+    /// static render or a prerender. Call it from the renderer's synchronization context.
     /// </remarks>
     public async Task<SubmitOutcome> ValidateForSubmitAsync()
     {
@@ -281,7 +282,14 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
             return RootSubmit.Superseded;
         }
 
-        var outcome = await RootSubmit.RunAsync(RequireEngine(), () => _engine);
+        var engine = RequireEngine();
+        var submit = RootSubmit.RunAsync(engine, () => _engine);
+
+        // Read once this submit's check has begun, so any later count is a newer submit's, through
+        // this method or the EditContext's ValidateAsync(). The newer submit decides, as under
+        // FormidableForm: it moves focus if it blocks, and nothing should move if it saved.
+        var checksBegun = engine.SubmitChecksBegun;
+        var outcome = await submit;
         if (outcome is null)
         {
             // The engine that started this submit is gone, and its answer must not surface as if
@@ -291,12 +299,35 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
             return RootSubmit.Superseded;
         }
 
-        if (!outcome.CanProceed && FocusFirstErrorOnInvalidSubmit)
+        // No move on a renderer that says it is static: a form posted on a static render, or in the
+        // prerender of a page that names its form, runs this where no script can run, and the
+        // blocked outcome is the page's to route rather than an error for a move that cannot happen.
+        if (!outcome.CanProceed
+            && FocusFirstErrorOnInvalidSubmit
+            && engine.SubmitChecksBegun == checksBegun
+            && !RendererDeclaresItselfStatic())
         {
             await FocusFirstErrorAsync();
         }
 
         return outcome;
+    }
+
+    /// <summary>Whether the renderer says outright that it is not interactive; a renderer that cannot say counts as interactive.</summary>
+    /// <returns><see langword="true"/> only when <c>RendererInfo.IsInteractive</c> reads <see langword="false"/>.</returns>
+    // The same reading FormidableForm makes before it renders: bUnit's test renderer throws from
+    // RendererInfo unless a test declares one, and a renderer that declines to say has not said
+    // it is static.
+    private bool RendererDeclaresItselfStatic()
+    {
+        try
+        {
+            return !RendererInfo.IsInteractive;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
 #if NET11_0_OR_GREATER
@@ -454,23 +485,6 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
             {
                 editContext.OnValidationStateChanged -= OnStateChanged;
             }
-        }
-    }
-
-    /// <summary>Whether the renderer says outright that it is not interactive; a renderer that cannot say counts as interactive.</summary>
-    /// <returns><see langword="true"/> only when <c>RendererInfo.IsInteractive</c> reads <see langword="false"/>.</returns>
-    // The same reading FormidableForm makes before it renders: bUnit's test renderer throws from
-    // RendererInfo unless a test declares one, and a renderer that declines to say has not said
-    // it is static.
-    private bool RendererDeclaresItselfStatic()
-    {
-        try
-        {
-            return !RendererInfo.IsInteractive;
-        }
-        catch (Exception)
-        {
-            return false;
         }
     }
 
