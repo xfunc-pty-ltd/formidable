@@ -2103,6 +2103,11 @@ After the store rebuild, a non-empty held-back set arms the refresh timer at zer
 (`RecheckHeldBackAnswers`). Nothing is armed when the apply landed nothing, the client had faulted,
 a refresh is armed or waiting, `RefreshDebounce` never passes or the engine is disposed.
 
+Whether the client had faulted is its own record (`_lastCheckFaulted`), not the fault issue. A
+pass's filed fault and the latest probe's fault set it, and a pass or the latest probe landing an
+answer clears it. An apply clears the fault issue and leaves the record, so a second reply still
+knows the client was throwing, and a probe's fault counts though it files no issue.
+
 Nothing is armed either while a pass in flight is expected to land an answer that saw the latest
 edit. Any submit counts, since one an edit outdates checks again, and so does a refresh, a load or
 a submit-profile live pass that began at the current stamp.
@@ -2116,9 +2121,10 @@ The one exception is a blocking submit whose outdated answer lands. Its end give
 only when a live check stood down for it; otherwise the edit that outdated it has armed the refresh
 already, as every edit made while a submit runs does.
 
-A rule that failed under the pass counts as the client's fault, as does a fault still standing
-then, so after a faulted pass the ask arms nothing. The pass's own failure is recorded apart from
-the fault issue, which a reply applied from a handler as the failure is reported clears.
+A rule that failed under the pass counts as the client's fault, as does the record above, so after
+a faulted pass, or a pass that ended unanswered after a faulted check, the ask arms nothing. Both
+are read apart from the fault issue, which a reply clears: one applied from a handler as the
+failure is reported, or any reply before that dispatch.
 
 The ask comes last in that dispatch, after its `IsFormValid` question, and its arm stands down any
 validity check the question armed. A zero wait can start the re-check inside its arm, and a

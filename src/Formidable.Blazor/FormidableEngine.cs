@@ -211,6 +211,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // same guards, so it reuses what the probe filed. Arms nothing for the vouch while it waits.
     private bool _heldBackRecheckOwed;
 
+    // Whether the client's last check to end faulted: set as a pass files its fault and as the
+    // latest TrackFormValidity probe ends on one, cleared as a pass or the latest probe lands an
+    // answer. A server apply clears the fault issue and leaves this alone, so a second reply, or
+    // the end of a submit or load a reply waited for, still knows the client was throwing, and a
+    // probe's fault counts though it files no issue. Read where the held-back set's re-check is
+    // asked for, which would only run the throwing rule again.
+    private bool _lastCheckFaulted;
+
 #if NET11_0_OR_GREATER
     // The fields Blazor reported pending, and faulted, at the last validation-state notification:
     // what HandleValidationStateChanged compares the next one against. Null while Blazor reports
@@ -2786,6 +2794,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     }
 
                     _faultIssue = null;
+                    _lastCheckFaulted = false;
 
                     // The store write, gated one notch further than the channel writes around it:
                     // the version says this pass is still the current one, and the generation says
@@ -2972,12 +2981,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                         // issues, so landed is true. A submit that lands an outdated answer
                         // detaches no record when no live check stood down for it, and needs no
                         // ask: the edit that outdated it armed the refresh, as every edit made
-                        // while a submit runs does. A rule that failed under this pass, or a fault
-                        // still standing from a check after the reply, means the client is still
+                        // while a submit runs does. A rule that failed under this pass, or a client
+                        // check that faulted with no answer landed since, means the client is still
                         // throwing, and the re-check would run that rule again, so none is owed, as
-                        // none is after a faulted probe (EndProbe). The pass's own failure is read
-                        // apart from the fault issue, because a reply applied from a handler as
-                        // that failure is reported clears the issue before this dispatch. This comes
+                        // none is after a faulted probe (EndProbe). Both are read apart from the
+                        // fault issue, because a reply clears the issue: one applied from a handler
+                        // as the failure is reported, or any before this dispatch. This comes
                         // after the IsFormValid question and the deferred fires, because a zero
                         // wait can start the re-check inside its arm, and a question asked after
                         // that would find nothing armed and arm a validity check beside it. Asked
@@ -2985,7 +2994,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                         // arm does.
                         if (owed is not null)
                         {
-                            RecheckHeldBackAnswers(landed: true, clientFaulted: passFaulted || _faultIssue is not null);
+                            RecheckHeldBackAnswers(landed: true, clientFaulted: passFaulted || _lastCheckFaulted);
                         }
 
                         return Task.CompletedTask;
@@ -3328,6 +3337,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             if (pass.Version == _version)
             {
                 _faultIssue = new ValidationIssue(string.Empty, _options.ValidationFaultMessage);
+                _lastCheckFaulted = true;
                 filed = true;
                 RebuildStore();
             }
@@ -3583,6 +3593,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
                 if (stamp == _formValidityStamp)
                 {
+                    _lastCheckFaulted = false;
                     if (!ruleCapable)
                     {
                         // The completed whole-profile answer is the capability-less coverage
@@ -3633,7 +3644,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // have begun at the current edit stamp. The re-check goes through RecheckHeldBackAnswers, so
     // every guard is asked again: an edit or a landing since the apply may have armed a re-check
     // or emptied the set already. A faulted probe drops the wait, as an apply drops the re-check
-    // for a client that had faulted, and the set then waits for the next whole-form check.
+    // for a client that had faulted, and the set then waits for the next whole-form check. Its
+    // fault is recorded for the applies after it (_lastCheckFaulted).
     private void EndProbe(int probe, bool faulted)
     {
         if (_probeOut != probe)
@@ -3642,6 +3654,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         _probeOut = 0;
+        if (faulted)
+        {
+            _lastCheckFaulted = true;
+        }
+
         if (!_heldBackRecheckOwed)
         {
             return;
@@ -4704,9 +4721,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // to qualify. Unconditional on purpose, and it is one of only two places the fault issue
         // is cleared: the client may still be faulting, and a pass may never run again on a form
         // the server alone judges, so waiting for a clean pass would leave the caveat standing
-        // over an answer that superseded it. Whether the client had faulted is kept for the
-        // re-check below, which would run the validator that was still throwing.
-        var clientFaulted = _faultIssue is not null;
+        // over an answer that superseded it. Whether the client had faulted is read for the
+        // re-check below, which would run the validator that was still throwing, from the record
+        // no apply clears: an earlier reply has cleared the fault issue, and a probe files none.
+        var clientFaulted = _lastCheckFaulted;
         _faultIssue = null;
 
         // The payload is the server's CURRENT verdict, not an addition to its last one: replacing
@@ -5589,7 +5607,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
                 // In a finally, as at the landing exit: a handler that throws at the notifications
                 // must not leave the probe counted as out, which would keep a re-check an apply
-                // owes it, and any later apply's, waiting on a probe that has already ended.
+                // owes it, and any later apply's, waiting on a probe that has already ended. Nor
+                // may it leave a fault unrecorded, which a later apply's re-check would repeat.
                 try
                 {
                     if (EndValidityCheck(run))

@@ -453,6 +453,206 @@ public class ServerApplyStaleClientTests : BunitContext
         Assert.Equal([CodeTaken], Messages(engine, code));
     }
 
+    // Code's async rule calls an endpoint that is down, so the edit's own check faults and the
+    // fault message shows. Two replies then arrive with no client check landing between them (a
+    // retry, or two requests in flight). The first holds Code back and arms nothing, because the
+    // client had faulted, and clears the fault message, as every reply does. The second arms
+    // nothing either: the re-check would run the rule that still throws, put the fault message
+    // back and raise ValidationFaulted again. Code shows the server's answer alone.
+    // Mutation: decide from the fault message alone, which the first reply cleared, and the second
+    // reply arms the re-check, which runs the rule again.
+    [Fact]
+    public async Task A_second_reply_while_the_client_rule_still_throws_arms_no_recheck()
+    {
+        var model = new Ticket();
+        var rules = new ThrowingTicketRules();
+        var (engine, editContext) = BuildThrowing(model, rules, new FormidableOptions());
+        using var disposeEngine = engine;
+        var code = CodeOf(model);
+        var faults = 0;
+        engine.ValidationFaulted += (_, _) => faults++;
+
+        model.Code = "ab";
+        editContext.NotifyFieldChanged(code);
+        Assert.True(await Until(() => faults == 1 && !engine.IsValidating));
+        Assert.True(ShowsFault(engine, model));
+        var runs = rules.Runs;
+
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        Assert.Equal(0, _clock.ZeroWaits);
+        Assert.False(ShowsFault(engine, model));
+
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        Assert.Equal(0, _clock.ZeroWaits);
+
+        await SettleEngineAsync();
+        Assert.Equal(runs, rules.Runs);
+        Assert.Equal(1, faults);
+        Assert.False(ShowsFault(engine, model));
+        Assert.Equal([CodeTaken], Messages(engine, code));
+    }
+
+    // The validity check an edit starts beside a narrowed live check runs Code's rule, which
+    // throws. That check shows nothing, so it raises ValidationFaulted with no fault message. A
+    // reply after it has ended arms no re-check, which would run the rule again and show the fault
+    // message this time.
+    // Mutation: leave the validity check's fault out of what the reply reads, and the reply arms
+    // the re-check.
+    [Fact]
+    public async Task A_reply_after_a_faulted_validity_check_arms_no_recheck()
+    {
+        var model = new Ticket();
+        var rules = new ThrowingTicketRules();
+        var (engine, editContext) = BuildThrowing(model, rules, TicketOptions("draft+tracking"));
+        using var disposeEngine = engine;
+        var code = CodeOf(model);
+        var faults = 0;
+        engine.ValidationFaulted += (_, _) => faults++;
+
+        model.Code = "ab";
+        editContext.NotifyFieldChanged(code);
+        Assert.True(await Until(() => faults == 1 && !engine.IsValidating));
+        Assert.False(ShowsFault(engine, model));
+        var runs = rules.Runs;
+
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        Assert.Equal(0, _clock.ZeroWaits);
+
+        await SettleEngineAsync();
+        Assert.Equal(runs, rules.Runs);
+        Assert.Equal(1, faults);
+        Assert.False(ShowsFault(engine, model));
+        Assert.Equal([CodeTaken], Messages(engine, code));
+    }
+
+    // The first reply after the faulted edit clears the fault message and arms nothing. The page
+    // then starts a load, which waits on the rule, and a second reply arrives while it runs, so it
+    // leaves the re-check to the load. The page cancels the load, which ends with no answer and
+    // no fault of its own. Its end owes the reply no re-check, because the client's last check
+    // faulted and nothing has answered since: the re-check would run the rule that still throws.
+    // Mutation: have the load's end decide from the fault message, which the first reply cleared,
+    // and it arms the re-check, which runs the rule again.
+    [Fact]
+    public async Task A_cancelled_load_after_a_reply_cleared_the_fault_owes_no_recheck()
+    {
+        var model = new Ticket();
+        var rules = new ThrowingTicketRules();
+        var (engine, editContext) = BuildThrowing(model, rules, new FormidableOptions());
+        using var disposeEngine = engine;
+        var code = CodeOf(model);
+        var faults = 0;
+        engine.ValidationFaulted += (_, _) => faults++;
+
+        model.Code = "ab";
+        editContext.NotifyFieldChanged(code);
+        Assert.True(await Until(() => faults == 1 && !engine.IsValidating));
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        Assert.Equal(0, _clock.ZeroWaits);
+        var runs = rules.Runs;
+
+        rules.Hold = true;
+        using var cancel = new CancellationTokenSource();
+        var load = engine.DiscloseLoadedValuesAsync(cancel.Token);
+        Assert.True(await Until(() => rules.Runs == runs + 1));
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        Assert.Equal(0, _clock.ZeroWaits);
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
+        Assert.Equal(0, _clock.ZeroWaits);
+
+        rules.Hold = false;
+        await SettleEngineAsync();
+        Assert.Equal(runs + 1, rules.Runs);
+        Assert.Equal(1, faults);
+        Assert.Equal([CodeTaken], Messages(engine, code));
+    }
+
+    // The client recovers. The validity check the build starts runs Code's rule, which throws.
+    // The endpoint then comes back, the page turns tracking off, and an edit's live check, narrowed
+    // so it runs none of Code's rules, lands an answer. The client's last check no longer faulted,
+    // so a reply arms its re-check, which lands the client's answer beside the server's.
+    // Mutation: leave the record as it is when a live check lands, and the reply arms nothing.
+    [Fact]
+    public async Task A_reply_after_a_live_check_lands_again_arms_its_recheck()
+    {
+        var model = new Ticket();
+        var rules = new ThrowingTicketRules();
+        var options = TicketOptions("draft+tracking");
+        var (engine, editContext) = BuildThrowing(model, rules, options);
+        using var disposeEngine = engine;
+        var code = CodeOf(model);
+        Assert.True(await Until(() => rules.Runs == 1 && !engine.IsValidating)); // the build's validity check threw
+
+        rules.Throws = false;
+        options.TrackFormValidity = false;
+        model.Code = "ab";
+        editContext.NotifyFieldChanged(code);
+        Assert.True(await Until(() => !engine.IsValidating));
+        Assert.Equal(1, rules.Runs);
+
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        Assert.Equal(1, _clock.ZeroWaits);
+
+        await SettleEngineAsync();
+        Assert.Equal(2, rules.Runs);
+        Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
+    }
+
+    // The same recovery through the validity check alone. The live window never closes, so an
+    // edit starts no live check, only the validity check, which the timer fires. The build's
+    // check threw; once the endpoint is back, the edit's check lands, and a reply arms its
+    // re-check. That re-check reuses what the validity check filed for "ab", so the rule runs no
+    // third time.
+    // Mutation: leave the record as it is when a validity check lands, and the reply arms nothing.
+    [Fact]
+    public async Task A_reply_after_a_validity_check_lands_again_arms_its_recheck()
+    {
+        var model = new Ticket();
+        var rules = new ThrowingTicketRules();
+        var (engine, editContext) = BuildThrowing(
+            model, rules, new FormidableOptions { LiveDebounce = Timeout.InfiniteTimeSpan, TrackFormValidity = true });
+        using var disposeEngine = engine;
+        var code = CodeOf(model);
+        Assert.True(await Until(() => rules.Runs == 1 && !engine.IsValidating)); // the build's validity check threw
+
+        rules.Throws = false;
+        model.Code = "ab";
+        editContext.NotifyFieldChanged(code); // arms the validity check
+        _time.Advance(PastRefresh); // which fires and lands
+        Assert.True(await Until(() => rules.Runs == 2));
+        await Task.Delay(50);
+
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        Assert.Equal(1, _clock.ZeroWaits);
+
+        await SettleEngineAsync();
+        Assert.Equal(2, rules.Runs);
+        Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
+    }
+
+    private (FormidableEngine<Ticket> Engine, EditContext EditContext) BuildThrowing(Ticket model, ThrowingTicketRules rules, FormidableOptions options)
+    {
+        var editContext = new EditContext(model);
+        var engine = new FormidableEngine<Ticket>(
+            model, editContext, new FluentValidationModelValidator<Ticket>(rules), new ReflectionModelIntrospector(),
+            options, _clock, EngineTestSync.OneAtATime());
+        return (engine, editContext);
+    }
+
+    private static bool ShowsFault(IFormidableEngine engine, Ticket model) =>
+        engine.GetIssues(new FieldIdentifier(model, string.Empty)).Any(i => i.Message == new FormidableOptions().ValidationFaultMessage);
+
+    // Runs any zero wait, moves the clock well past every debounce, and gives a started check time
+    // to land: an engine the test holds directly has no renderer to wait on.
+    private async Task SettleEngineAsync()
+    {
+        _clock.RunZeroWaits();
+        _time.Advance(TimeSpan.FromSeconds(10));
+        await Task.Delay(50);
+        _clock.RunZeroWaits();
+        await Task.Delay(50);
+    }
+
     // The visitor types "ab" under a narrowed LiveProfile, whose check runs none of Code's rules,
     // and with no submit or reply before it, so the edit starts no re-check either. The page then
     // starts a submit with a token of its own, and the submit waits on the async rule. The reply
@@ -858,16 +1058,16 @@ public class ServerApplyStaleClientTests : BunitContext
         Assert.Equal(runs + 1, rules.Gate.Runs);
     }
 
-    // The same throw at the exit of a validity check whose rule faults. A faulted check owes the
-    // reply no re-check, since the re-check would run the rule that threw, but its exit still
-    // ends it. So a second reply, at the same edit, starts its own re-check at once instead of
-    // waiting on a check that is no longer out. The validity check is the one the timer fires,
-    // because the live window never closes. The engine runs its dispatches one at a time behind a
-    // lock the test also takes, so the second reply comes after the exit's dispatch is over.
+    // The same throw at the exit of a validity check whose rule faults. The exit still ends the
+    // check and records its fault, so a reply after a later edit arms no re-check, which would run
+    // the rule that threw. The validity check is the one the timer fires, because the live window
+    // never closes. No reply comes before it, so the later edit arms no re-check of its own. The
+    // engine runs its dispatches one at a time behind a lock the test also takes, so the edit and
+    // the reply come after the exit's dispatch is over.
     // Mutation: end the check after the exit's notifications rather than in a finally, and the
-    // second reply arms nothing.
+    // fault goes unrecorded, so the reply arms the re-check.
     [Fact]
-    public async Task A_handler_that_throws_as_a_faulted_check_ends_leaves_a_later_reply_s_recheck_to_run()
+    public async Task A_handler_that_throws_as_a_faulted_check_ends_leaves_its_fault_recorded()
     {
         var model = new Ticket();
         var rules = new AsyncTicketRules();
@@ -892,12 +1092,6 @@ public class ServerApplyStaleClientTests : BunitContext
         editContext.NotifyFieldChanged(code); // arms the validity check
         _time.Advance(PastRefresh); // which fires and waits on the rule
         Assert.True(await Until(() => rules.Gate.Runs == runs + 1));
-        lock (sync)
-        {
-            engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
-        }
-
-        Assert.Equal(0, _clock.ZeroWaits); // the re-check waits for the check
 
         var thrown = 0;
         engine.StateChanged += (_, _) =>
@@ -911,11 +1105,79 @@ public class ServerApplyStaleClientTests : BunitContext
         Assert.True(await Until(() => Volatile.Read(ref thrown) == 1));
         lock (sync)
         {
-            Assert.Equal(0, _clock.ZeroWaits); // a faulted check arms nothing
+            model.Code = "abc";
+            editContext.NotifyFieldChanged(code); // arms the validity check again, and no re-check
             engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+            Assert.Equal(0, _clock.ZeroWaits); // the check's fault leaves the reply nothing to arm
         }
 
-        Assert.Equal(1, _clock.ZeroWaits);
+        Assert.Equal(runs + 1, rules.Gate.Runs);
+        Assert.Equal([CodeTaken], Messages(engine, code));
+    }
+
+    // The other half of that exit's clean-up: the check stops counting as running. A load cancelled
+    // by the page owes the form a validity check, and gives back the narrowed live check it had
+    // cancelled, held here on a gate. The validity check runs Code's rule, which throws, as a page's
+    // StateChanged handler throws at the exit. The given-back live check then lands at the same
+    // edit, so the client's last check no longer faulted, and a reply at that edit holds Code back.
+    // No check is still computing that edit, so the reply arms its re-check at once.
+    // Mutation: keep the fault's record in the finally but end the check only after the exit's
+    // notifications, and the reply waits on a check that has already ended: nothing is armed.
+    [Fact]
+    public async Task A_handler_that_throws_as_a_faulted_check_ends_still_ends_the_check()
+    {
+        var model = new Ticket();
+        var rules = new ThrowingSubmitTicketRules();
+        var validator = new ProfileHeldValidator(new FluentValidationModelValidator<Ticket>(rules));
+        var editContext = new EditContext(model);
+        var sync = new object();
+        using var engine = new FormidableEngine<Ticket>(
+            model, editContext, validator, new ReflectionModelIntrospector(), TicketOptions("draft+tracking"), _clock,
+            work =>
+            {
+                lock (sync)
+                {
+                    return work();
+                }
+            });
+        var code = CodeOf(model);
+        await Task.Delay(50); // the validity check the build starts lands
+
+        validator.HoldDraft = true;
+        model.Code = "ab";
+        editContext.NotifyFieldChanged(code); // a narrowed live check, held, and a validity check beside it
+        Assert.True(await Until(() => validator.DraftWaiting == 1));
+
+        validator.HoldSubmit = true;
+        using var cancel = new CancellationTokenSource();
+        var load = engine.DiscloseLoadedValuesAsync(cancel.Token);
+        Assert.True(await Until(() => validator.SubmitWaiting == 1));
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
+        Assert.True(await Until(() => validator.DraftWaiting == 2)); // the given-back live check
+
+        rules.Throws = true;
+        validator.HoldSubmit = false;
+        var thrown = 0;
+        engine.StateChanged += (_, _) =>
+        {
+            if (Interlocked.Exchange(ref thrown, 1) == 0)
+            {
+                throw new InvalidOperationException("a page's handler");
+            }
+        };
+        _time.Advance(PastRefresh); // the validity check the load owes fires, and throws
+        Assert.True(await Until(() => Volatile.Read(ref thrown) == 1));
+
+        rules.Throws = false;
+        validator.ReleaseDraft();
+        Assert.True(await Until(() => !engine.IsValidating));
+        lock (sync)
+        {
+            engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+            Assert.Equal(1, _clock.ZeroWaits);
+        }
+
         _clock.RunZeroWaits();
         Assert.True(await Until(() => !engine.IsValidating && Messages(engine, code).Count == 2));
         Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
@@ -1752,6 +2014,124 @@ public class ServerApplyStaleClientTests : BunitContext
         }
 
         public RuleGate Gate { get; } = new();
+    }
+
+    /// <summary>Code is required, and in the Submit rule set a code under three characters is too short and a rule calls an endpoint that throws while <see cref="Throws"/> holds.</summary>
+    private sealed class ThrowingSubmitTicketRules : AbstractValidator<Ticket>
+    {
+        public ThrowingSubmitTicketRules()
+        {
+            RuleFor(t => t.Code).NotEmpty().WithMessage(CodeRequired);
+            RuleSet("Submit", () =>
+            {
+                RuleFor(t => t.Code).MinimumLength(3).WithMessage(CodeTooShort);
+                RuleFor(t => t.Code).Must(_ => Throws ? throw new InvalidOperationException("the endpoint is down") : true);
+            });
+        }
+
+        public volatile bool Throws;
+    }
+
+    /// <summary>The validator with a check of the Draft profile, and one of any other, each held on a gate of its own while asked: counted as they start to wait.</summary>
+    private sealed class ProfileHeldValidator(IModelValidator<Ticket> inner) : DelegatingModelValidator<Ticket>(inner)
+    {
+        private readonly TaskCompletionSource _draft = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _submit = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _draftWaiting;
+        private int _submitWaiting;
+
+        public volatile bool HoldDraft;
+
+        public volatile bool HoldSubmit;
+
+        /// <summary>How many Draft checks have waited on their gate.</summary>
+        public int DraftWaiting => Volatile.Read(ref _draftWaiting);
+
+        /// <summary>How many other checks have waited on theirs; a held one ends only when cancelled.</summary>
+        public int SubmitWaiting => Volatile.Read(ref _submitWaiting);
+
+        /// <summary>Lets every Draft check waiting, and every later one, go on.</summary>
+        public void ReleaseDraft()
+        {
+            HoldDraft = false;
+            _draft.TrySetResult();
+        }
+
+        public override async Task<ValidationReport> ValidateAsync(Ticket model, ValidationProfile profile, CancellationToken cancellationToken = default)
+        {
+            await WaitAsync(profile, cancellationToken);
+            return await base.ValidateAsync(model, profile, cancellationToken);
+        }
+
+        public override async Task<RuleLevelResult> ValidateRulesAsync(
+            Ticket model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules, CancellationToken cancellationToken = default)
+        {
+            await WaitAsync(profile, cancellationToken);
+            return await base.ValidateRulesAsync(model, profile, rules, cancellationToken);
+        }
+
+        private async Task WaitAsync(ValidationProfile profile, CancellationToken cancellationToken)
+        {
+            if (ReferenceEquals(profile, ValidationProfile.Draft))
+            {
+                if (HoldDraft)
+                {
+                    Interlocked.Increment(ref _draftWaiting);
+                    await _draft.Task.WaitAsync(cancellationToken);
+                }
+            }
+            else if (HoldSubmit)
+            {
+                Interlocked.Increment(ref _submitWaiting);
+                await _submit.Task.WaitAsync(cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>Code is required, and an async rule in the Submit rule set calls an endpoint that is down: every run throws while <see cref="Throws"/> holds, after waiting for the gate while <see cref="Hold"/> holds.</summary>
+    private sealed class ThrowingTicketRules : AbstractValidator<Ticket>
+    {
+        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private volatile bool _hold;
+        private int _runs;
+
+        public ThrowingTicketRules()
+        {
+            RuleSet("Submit", () =>
+            {
+                RuleFor(t => t.Code).NotEmpty().WithMessage(CodeRequired);
+                RuleFor(t => t.Code).MustAsync(async (value, ct) =>
+                {
+                    Interlocked.Increment(ref _runs);
+                    if (_hold)
+                    {
+                        await _gate.Task.WaitAsync(ct);
+                    }
+
+                    return Throws ? throw new InvalidOperationException("the endpoint is down") : value.Length >= 3;
+                }).WithMessage(CodeTooShort);
+            });
+        }
+
+        /// <summary>How many runs of the async rule have started.</summary>
+        public int Runs => Volatile.Read(ref _runs);
+
+        /// <summary>Whether a run waits for the gate before it answers; clearing it opens the gate for every waiting run.</summary>
+        public bool Hold
+        {
+            get => _hold;
+            set
+            {
+                _hold = value;
+                if (!value)
+                {
+                    _gate.TrySetResult();
+                }
+            }
+        }
+
+        /// <summary>Whether every run throws.</summary>
+        public bool Throws { get; set; } = true;
     }
 
     /// <summary>A form over <see cref="Ticket"/>: a kit input for Code, and one for Note while <see cref="ShowNote"/> holds.</summary>
