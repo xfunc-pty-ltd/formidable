@@ -56,6 +56,66 @@ public class ServerReplyThatThrowsTests
         Assert.Equal(shown, Shown(engine, editContext));
     }
 
+    // A consumer callback the apply raises throws on the second issue of a reply: the disclosure
+    // override as it asks whether to hide a server error, the suppressed-issue or never-registered
+    // diagnostic as an advisory nothing renders is dropped, or the override again as the gate asks
+    // whether any of the reply's errors is on screen. Each is asked before the apply writes
+    // anything, so the earlier reply still stands, in the views and the EditContext's store alike,
+    // and HasSubmitted is unchanged.
+    // Mutation that must break every row: ask the callbacks inside the writing loop again, and
+    // the earlier reply is gone while the store still shows it.
+    [Theory]
+    [InlineData("override-hides")]
+    [InlineData("suppressed-diagnostic")]
+    [InlineData("never-registered-diagnostic")]
+    [InlineData("override-in-the-gate")]
+    public void A_callback_that_throws_during_a_reply_changes_nothing(string callback)
+    {
+        var options = new FormidableOptions();
+        var asked = 0;
+        switch (callback)
+        {
+            case "override-hides":
+                options.DisclosureOverride = issue => issue.Message == "Boom" ? throw new InvalidOperationException("override") : null;
+                break;
+            case "suppressed-diagnostic":
+                options.SuppressedIssueDiagnostic = _ => throw new InvalidOperationException("diagnostic");
+                break;
+            case "never-registered-diagnostic":
+                options.NeverRegisteredFieldDiagnostic = _ => throw new InvalidOperationException("diagnostic");
+                break;
+            case "override-in-the-gate":
+                // Asked once per error as the apply decides whether to hide it, then again as the
+                // gate asks whether it is on screen: the second ask for "Boom" throws.
+                options.DisclosureOverride = issue =>
+                    issue.Message == "Boom" && ++asked == 2 ? throw new InvalidOperationException("override") : null;
+                break;
+        }
+
+        var model = new Booking();
+        var editContext = new EditContext(model);
+        using var engine = Build(model, editContext, new ReflectionModelIntrospector(), options);
+
+        ValidationIssue second = callback is "suppressed-diagnostic" or "never-registered-diagnostic"
+            ? new ValidationIssue(nameof(Booking.Notes), "Boom", ValidationSeverity.Warning)
+            : new ValidationIssue(nameof(Booking.Notes), "Boom");
+        ValidationIssue[] throwing = [new ValidationIssue(nameof(Booking.Name), "Other"), second];
+
+        Assert.Throws<InvalidOperationException>(() => engine.ApplyServerIssues(throwing));
+        Assert.False(engine.HasSubmitted);
+
+        // The earlier reply carries no "Boom" and no advisory, so no callback throws for it.
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Booking.Name), Taken)]);
+        var shown = Shown(engine, editContext);
+
+        asked = 0;
+        Assert.Throws<InvalidOperationException>(() => engine.ApplyServerIssues(throwing));
+
+        Assert.Contains("view: Name Taken", shown);
+        Assert.Contains("store: Taken", shown);
+        Assert.Equal(shown, Shown(engine, editContext));
+    }
+
     private static IEnumerable<ValidationIssue> BreaksOff()
     {
         yield return new ValidationIssue(nameof(Booking.Notes), "Other");
@@ -70,13 +130,14 @@ public class ServerReplyThatThrowsTests
         $"submitted: {engine.HasSubmitted}",
     ];
 
-    private static FormidableEngine<Booking> Build(Booking model, EditContext editContext, IModelIntrospector introspector) =>
+    private static FormidableEngine<Booking> Build(
+        Booking model, EditContext editContext, IModelIntrospector introspector, FormidableOptions? options = null) =>
         new(
             model,
             editContext,
             new FluentValidationModelValidator<Booking>(new BookingValidator()),
             introspector,
-            new FormidableOptions(),
+            options ?? new FormidableOptions(),
             new FakeTimeProvider());
 
     public sealed class Booking

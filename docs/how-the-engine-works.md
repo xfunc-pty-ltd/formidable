@@ -2061,22 +2061,25 @@ client answer ([Sources and views](#sources-and-views)). `ApplyServerIssues` wri
 synchronously on the calling thread.
 
 It first reads the payload whole and resolves every issue to a field through the introspector
-([the walk](#the-walk)), before it writes anything, so a payload that throws as it is read, or a
-path the introspector throws on, leaves every source as it was.
+([the walk](#the-walk)). Each issue that lands is then added, on its field, to a new dictionary for
+its severity. Within one payload a second copy of a sentence for one field at the same severity
+folds into the first (`SameMessageAndSeverity`, the same test the views apply when they fold a
+server copy into a client one).
+
+Every consumer callback the apply raises is asked during that sort: `DisclosureOverride` for each
+error, and the visible test for each advisory, with `ReportSuppressed`'s diagnostics for one that
+does not show. The gate's visible test below is asked then too. All of it comes before the apply
+writes anything, so a payload that throws as it is read, a path the introspector throws on, or a
+callback that throws leaves every source as it was.
 
 It then sets `HasSubmitted`, which is one of the two conditions under which a field change arms
 the refresh timer ([the pass kinds](#the-pass-kinds)). It clears the fault issue
 unconditionally, one of the two places that issue is cleared (a pass landing is the other). It then
-clears both dictionaries, so a replace is a wholesale swap of that one source and the client's own
-verdict sources are untouched.
+replaces both dictionaries' contents with the new ones, so a replace is a wholesale swap of that
+one source and the client's own verdict sources are untouched.
 
 Beside the swap it records the version, the edit stamp and the departure count, which decide
 which later landing replaces it ([what replaces the server's answer](#what-replaces-the-servers-answer)).
-
-Each issue, on the field it resolved to, is then added where it lands to the dictionary for its
-severity. Within one payload a second copy of a sentence for one field at the same severity folds
-into the first (`SameMessageAndSeverity`, the same test the views apply when they fold a server
-copy into a client one).
 
 The field of every landed issue is unioned into the matching reveal ledger, error sites or advisory
 sites ([the reveal ledgers](#the-reveal-ledgers)), which is what makes an apply a disclosure event.

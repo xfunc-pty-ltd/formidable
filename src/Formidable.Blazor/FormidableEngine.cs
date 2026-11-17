@@ -4708,43 +4708,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         ArgumentNullException.ThrowIfNull(issues);
 
-        // The reply is read once and its paths resolved in one call, so the paths of a reply naming
-        // every row of a collection read only by walking it share one walk of it, unless its member
-        // builds it afresh on each read. Both happen before anything is written, so a reply that
-        // throws as it is read, or a path the introspector throws on, leaves the engine as it was.
+        // The reply is read once and its paths resolved in one call (ResolveAll). The new server
+        // stores are then built apart from the engine's, and every consumer callback the apply
+        // raises is asked as they are: the disclosure override, the diagnostics a dropped advisory
+        // reports through, and the override again as the gate asks whether an error is on screen.
+        // All of it happens before anything is written, so a reply that throws as it is read, a
+        // path the introspector throws on, or a callback that throws leaves the engine as it was.
         ValidationIssue[] reply = [.. issues];
         var replyFields = ResolveIssues(reply);
-
-        HasSubmitted = true;
-
-        // A verdict has arrived, so the caveat that the last one was incomplete has nothing left
-        // to qualify. Unconditional on purpose, and it is one of only two places the fault issue
-        // is cleared: the client may still be faulting, and a pass may never run again on a form
-        // the server alone judges, so waiting for a clean pass would leave the caveat standing
-        // over an answer that superseded it. Whether the client had faulted is read for the
-        // re-check below, which would run the validator that was still throwing, from the record
-        // no apply clears: an earlier reply has cleared the fault issue, and a probe files none.
-        var clientFaulted = _lastCheckFaulted;
-        _faultIssue = null;
-
-        // The payload is the server's CURRENT verdict, not an addition to its last one: replacing
-        // it is swapping the server source wholesale. The client's own answer lives in its own
-        // source and is untouched — an identical client message keeps showing through the client
-        // view, because the views merge client-first and drop the server's same-text copy.
-        _serverErrors.Clear();
-        _serverAdvisories.Clear();
-
-        // Read beside the swap, on the renderer's synchronization context this method requires,
-        // which is where all three move: a pass that took these readings or earlier ones knows
-        // nothing this answer does not.
-        _serverAnswerVersion = _version;
-        _serverAnswerEditStamp = _editStamp;
-        _serverAnswerDepartures = _departures;
-
-        // Whether the stored client answer is older than the latest edit, so that what it says
-        // of a field this apply reveals may be about a value the field no longer holds.
-        var clientStale = _submitAnswerEditStamp != _editStamp;
-        var landed = false;
+        var errors = new Dictionary<FieldIdentifier, List<ValidationIssue>>();
+        var advisories = new Dictionary<FieldIdentifier, List<ValidationIssue>>();
+        var lands = new bool[reply.Length];
 
         for (var at = 0; at < reply.Length; at++)
         {
@@ -4779,7 +4753,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // A payload can carry the same sentence twice at the same severity; a reader has no
             // use for it twice, so the second copy folds into the first exactly as the views fold
             // a server copy into a client one.
-            var channel = issue.Severity == ValidationSeverity.Error ? _serverErrors : _serverAdvisories;
+            var channel = issue.Severity == ValidationSeverity.Error ? errors : advisories;
             if (!channel.TryGetValue(field, out var forField))
             {
                 channel[field] = forField = [];
@@ -4790,6 +4764,65 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 forField.Add(issue);
             }
 
+            lands[at] = true;
+        }
+
+        // A reply that landed errors, none of them on a field on screen, arms the gate as a
+        // blocked submit with nothing on screen does: a summary lists those errors, but on a form
+        // with no summary nothing else would say why the save was refused. Asked per issue, the
+        // test a blocked submit's arming asks. It never disarms: only a submit does that.
+        var armsGate = errors.Count > 0
+            && !errors.Any(entry => entry.Value.Any(error => IsVisible(error, entry.Key)));
+
+        HasSubmitted = true;
+
+        // A verdict has arrived, so the caveat that the last one was incomplete has nothing left
+        // to qualify. Unconditional on purpose, and it is one of only two places the fault issue
+        // is cleared: the client may still be faulting, and a pass may never run again on a form
+        // the server alone judges, so waiting for a clean pass would leave the caveat standing
+        // over an answer that superseded it. Whether the client had faulted is read for the
+        // re-check below, which would run the validator that was still throwing, from the record
+        // no apply clears: an earlier reply has cleared the fault issue, and a probe files none.
+        var clientFaulted = _lastCheckFaulted;
+        _faultIssue = null;
+
+        // The payload is the server's CURRENT verdict, not an addition to its last one: replacing
+        // it is swapping the server source wholesale. The client's own answer lives in its own
+        // source and is untouched — an identical client message keeps showing through the client
+        // view, because the views merge client-first and drop the server's same-text copy.
+        _serverErrors.Clear();
+        _serverAdvisories.Clear();
+        foreach (var (field, forField) in errors)
+        {
+            _serverErrors.Add(field, forField);
+        }
+
+        foreach (var (field, forField) in advisories)
+        {
+            _serverAdvisories.Add(field, forField);
+        }
+
+        // Read beside the swap, on the renderer's synchronization context this method requires,
+        // which is where all three move: a pass that took these readings or earlier ones knows
+        // nothing this answer does not.
+        _serverAnswerVersion = _version;
+        _serverAnswerEditStamp = _editStamp;
+        _serverAnswerDepartures = _departures;
+
+        // Whether the stored client answer is older than the latest edit, so that what it says
+        // of a field this apply reveals may be about a value the field no longer holds.
+        var clientStale = _submitAnswerEditStamp != _editStamp;
+        var landed = false;
+
+        for (var at = 0; at < reply.Length; at++)
+        {
+            if (!lands[at])
+            {
+                continue;
+            }
+
+            var issue = reply[at];
+            var field = replyFields[at];
             landed = true;
 
             // A server apply is a disclosure event: it only ever unions, so the ledger takes the
@@ -4814,12 +4847,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }
         }
 
-        // A reply that landed errors, none of them on a field on screen, arms the gate as a
-        // blocked submit with nothing on screen does: a summary lists those errors, but on a form
-        // with no summary nothing else would say why the save was refused. Asked per issue, the
-        // test a blocked submit's arming asks. It never disarms: only a submit does that.
-        if (_serverErrors.Count > 0
-            && !_serverErrors.Any(entry => entry.Value.Any(error => IsVisible(error, entry.Key))))
+        if (armsGate)
         {
             _gateArmed = true;
         }
