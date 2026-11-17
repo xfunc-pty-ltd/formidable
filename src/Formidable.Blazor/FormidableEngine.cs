@@ -2412,13 +2412,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Records the new pass as current under a moved version, which supersedes any pass in flight, and hands back the previous pass's token source for the caller to cancel; a submit or load first records the check it cancels.</summary>
     /// <param name="kind">The new pass's kind.</param>
+    /// <param name="profile">The profile the new pass runs, as its caller resolved it.</param>
     /// <param name="external">The caller's token, linked into the pass's own; <see cref="CancellationToken.None"/> for a live or refresh pass.</param>
     /// <param name="previous">The token source of the pass recorded before this one, or <see langword="null"/> before the first; the caller cancels and disposes it.</param>
     /// <returns>The new pass's descriptor.</returns>
     /// <exception cref="ObjectDisposedException">The engine is disposed.</exception>
     // Cancelling is left to RunPassAsync, inside the try whose finally ends this pass, because
     // Cancel can throw after this pass is recorded (see the cancel there).
-    private PassScope BeginPass(PassKind kind, CancellationToken external, out CancellationTokenSource? previous)
+    private PassScope BeginPass(PassKind kind, ValidationProfile profile, CancellationToken external, out CancellationTokenSource? previous)
     {
         // A disposed engine starts no pass. Past this test a call would put a live token source
         // where Dispose left a disposed one, so it, or the call after it, would run a whole pass.
@@ -2437,7 +2438,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         previous = _passCts;
         _passCts = CancellationTokenSource.CreateLinkedTokenSource(external);
         _version++;
-        var pass = new PassScope(kind, _version, _passCts.Token, _timeProvider.GetTimestamp(), _editStamp);
+        var pass = new PassScope(kind, _version, _passCts.Token, _timeProvider.GetTimestamp(), _editStamp, profile);
         _currentPass = pass;
         return pass;
     }
@@ -2618,7 +2619,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // before the begin records this pass in their place (see CarryCancelledFields).
         var superseded = _currentPass;
         var supersededFields = _currentPassScope;
-        var pass = BeginPass(kind, external, out var previous);
+        var pass = BeginPass(kind, profile, external, out var previous);
 
         // Whether this pass ended as the current one, landed or not, which is what owes the fires
         // that deferred to it their arm (see ArmDeferredFires). A superseded pass's end owes
@@ -4948,15 +4949,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Whether the check in flight will replace the stored submit answer with one that empties the held-back set: a submit, or a refresh, a load or a submit-profile live pass begun at the latest edit stamp.</summary>
-    // The live profile is read as ReAnswerOnItsWay reads it, at the ask. A submit or a load counted
-    // here can still end without that answer (cancelled, faulted, or a submit whose restarts are
-    // spent), and the re-check is then asked for again at its end, under the same guards
-    // (RunPassAsync).
+    // A live pass is judged by the profile it captured as it began, against the submit profile as
+    // the options stand, which is the test its landing makes before it records the answer: a page
+    // that widens LiveProfile, or swaps SubmitProfile, while a narrowed or default live pass runs
+    // does not change what that pass checks. A submit or a load counted here can still end
+    // without that answer (cancelled, faulted, or a submit whose restarts are spent), and the
+    // re-check is then asked for again at its end, under the same guards (RunPassAsync).
     private bool HeldBackAnswerOnItsWay =>
         _currentPass is { } pass
         && (pass.Kind == PassKind.Submit
             || (pass.EditStamp == _editStamp
-                && (pass.Kind != PassKind.Live || LiveRunsSubmitProfile)));
+                && (pass.Kind != PassKind.Live || ReferenceEquals(pass.Profile, _options.SubmitProfile))));
 
     /// <summary>Records the edit stamp a replacement of the stored submit answer was computed at, and empties the held-back set when the check that produced it read the current edit stamp.</summary>
     /// <param name="beganAtEditStamp">The edit stamp the replacing check read as it began.</param>
@@ -5991,8 +5994,9 @@ internal enum PassKind
 /// <param name="Token">The pass's token, linked to the caller's where it supplied one.</param>
 /// <param name="StartedAt">The <see cref="TimeProvider"/> timestamp the pass began at, which bounds how long a held coverage vouch may count the pass as a re-answer on its way.</param>
 /// <param name="EditStamp">The edit stamp as the pass began, which says whether its answer will see the latest edit; a submit that checks again reads a later one for that check.</param>
+/// <param name="Profile">The profile the pass runs, captured as it began, which decides whether its landing answers the submit rules: options a page changes while it runs do not change what it checks.</param>
 internal readonly record struct PassScope(
-    PassKind Kind, int Version, CancellationToken Token, long StartedAt, int EditStamp);
+    PassKind Kind, int Version, CancellationToken Token, long StartedAt, int EditStamp, ValidationProfile Profile);
 
 /// <summary>What a submit or load in flight displaced: kept while a submit checks again, given back if it ends unanswered, and dropped if it lands, except the stood-down fields behind a blocking answer an edit outdated.</summary>
 // Mutable sets, because a live check that stands down while the submit or load runs adds to the

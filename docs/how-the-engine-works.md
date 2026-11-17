@@ -2115,6 +2115,9 @@ Nothing is armed either while a pass in flight is expected to land an answer tha
 edit. Any submit counts, since one an edit outdates checks again, and so does a refresh, a load or
 a submit-profile live pass that began at the current stamp.
 
+A live pass is judged by the profile it captured as it began, as its landing judges it, so a page
+that widens `LiveProfile` or swaps `SubmitProfile` while it runs does not make it count.
+
 A submit or load counted this way can still end without that answer: cancelled, faulted, or a
 submit an edit outdated after its restarts were spent. Each such end but one gives back what the
 pass displaced in the dispatch after it, and that dispatch asks for the re-check again under the

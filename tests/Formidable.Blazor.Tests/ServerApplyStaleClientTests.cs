@@ -630,6 +630,59 @@ public class ServerApplyStaleClientTests : BunitContext
         Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
     }
 
+    // The edit's check waits on an async rule, with no submit or reply before it, so the edit
+    // starts no re-check. While it runs the page changes the profiles, and the form's first reply
+    // then holds Code back. The check lands under the profile it began with, so whether it answers
+    // the submit rules is decided by that profile, not by the options as they now stand. Where the
+    // page widened LiveProfile to the submit profile, or swapped in another SubmitProfile instance,
+    // the check will not answer them, so the reply arms its re-check and the client's answer lands
+    // beside the server's. With nothing changed the check that runs the submit profile answers them
+    // itself, and the reply arms nothing.
+    // Mutation: ask the options as they now stand which profile the running check answers, and
+    // the two changed rows arm nothing, so Code shows the server's answer alone.
+    [Theory]
+    [InlineData("live-widened", 1)]
+    [InlineData("submit-swapped", 1)]
+    [InlineData("unchanged", 0)]
+    public async Task A_reply_while_a_check_runs_a_profile_the_page_has_since_changed_rechecks(string change, int armed)
+    {
+        var model = new Ticket();
+        var rules = new DraftAsyncTicketRules();
+        var options = change == "live-widened"
+            ? new FormidableOptions { LiveProfile = ValidationProfile.Draft }
+            : new FormidableOptions();
+        var editContext = new EditContext(model);
+        using var engine = new FormidableEngine<Ticket>(
+            model, editContext, new FluentValidationModelValidator<Ticket>(rules), new ReflectionModelIntrospector(),
+            options, _clock, EngineTestSync.OneAtATime());
+        var code = CodeOf(model);
+
+        rules.Gate.Hold = true;
+        model.Code = "ab";
+        editContext.NotifyFieldChanged(code);
+        Assert.True(await Until(() => rules.Gate.Runs == 1)); // the edit's check waits on the rule
+        if (change == "live-widened")
+        {
+            options.LiveProfile = null;
+        }
+        else if (change == "submit-swapped")
+        {
+            options.SubmitProfile = ValidationProfile.Named("Submit", includeDefaultRules: true, "Submit");
+        }
+
+        engine.ApplyServerIssues([new ValidationIssue(nameof(Ticket.Code), CodeTaken)]);
+        Assert.Equal(armed, _clock.ZeroWaits);
+        Assert.Equal([CodeTaken], Messages(engine, code));
+
+        // The edit's check lands first, so the re-check's zero wait runs with no check in flight to
+        // wait for.
+        rules.Gate.Release();
+        Assert.True(await Until(() => !engine.IsValidating));
+        await SettleEngineAsync();
+        Assert.True(await Until(() => !engine.IsValidating));
+        Assert.Equal([CodeTooShort, CodeTaken], Messages(engine, code));
+    }
+
     private (FormidableEngine<Ticket> Engine, EditContext EditContext) BuildThrowing(Ticket model, ThrowingTicketRules rules, FormidableOptions options)
     {
         var editContext = new EditContext(model);
@@ -2086,6 +2139,22 @@ public class ServerApplyStaleClientTests : BunitContext
                 await _submit.Task.WaitAsync(cancellationToken);
             }
         }
+    }
+
+    /// <summary>An async rule outside any rule set, so Draft runs it too, and a length rule in the Submit rule set that says a code under three characters is too short.</summary>
+    private sealed class DraftAsyncTicketRules : AbstractValidator<Ticket>
+    {
+        public DraftAsyncTicketRules()
+        {
+            RuleFor(t => t.Code).MustAsync(async (_, ct) =>
+            {
+                await Gate.RunAsync(ct);
+                return true;
+            });
+            RuleSet("Submit", () => RuleFor(t => t.Code).MinimumLength(3).WithMessage(CodeTooShort));
+        }
+
+        public RuleGate Gate { get; } = new();
     }
 
     /// <summary>Code is required, and an async rule in the Submit rule set calls an endpoint that is down: every run throws while <see cref="Throws"/> holds, after waiting for the gate while <see cref="Hold"/> holds.</summary>
