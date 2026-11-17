@@ -3,6 +3,8 @@ using Bunit;
 using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
@@ -20,7 +22,13 @@ namespace Formidable.Blazor.Tests;
 /// </remarks>
 public class FormidableEnginePassNotificationTests : BunitContext
 {
-    public FormidableEnginePassNotificationTests() => Services.AddFormidable();
+    // A clock that never moves keeps the form's timed whole-form re-check out of the rounds the
+    // test counts, so a slow machine cannot add one.
+    public FormidableEnginePassNotificationTests()
+    {
+        Services.AddFormidable();
+        Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
+    }
 
     [Fact]
     public async Task An_async_live_pass_costs_the_form_two_notification_rounds()
