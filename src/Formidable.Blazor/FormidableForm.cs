@@ -1181,24 +1181,6 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         "InteractiveWebAssembly or @rendermode InteractiveAuto — or host the form in a " +
         "standalone WebAssembly app, where every page is interactive already.";
 
-    /// <summary>Whether the renderer says outright that it is not interactive; a renderer that cannot say counts as interactive.</summary>
-    /// <returns><see langword="true"/> only when <c>RendererInfo.IsInteractive</c> reads <see langword="false"/>.</returns>
-    private bool RendererDeclaresItselfStatic()
-    {
-        try
-        {
-            return !RendererInfo.IsInteractive;
-        }
-        catch (Exception)
-        {
-            // A renderer that declines to describe itself has said nothing, and nothing is not
-            // proof of a dead end: bUnit's test renderer throws from RendererInfo unless a test
-            // declares one, and rendering a form in a component test must not depend on having
-            // declared it.
-            return false;
-        }
-    }
-
     /// <summary>The three things this form can render, as <see cref="Rendering"/> decides them.</summary>
     private enum FormRendering
     {
@@ -1221,7 +1203,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     // reading is also what puts the render mode where a test can reach it: split across two
     // predicates it is a conjunct in each, and the render that would discriminate one of those
     // conjuncts is the render the other predicate answers for.
-    private FormRendering Rendering => RendererDeclaresItselfStatic()
+    private FormRendering Rendering => RendererReading.DeclaresItselfStatic(this, static form => form.RendererInfo)
         ? (AssignedRenderMode is null ? FormRendering.Refused : FormRendering.Inert)
         : FormRendering.Whole;
 

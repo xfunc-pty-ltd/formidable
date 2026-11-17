@@ -23,7 +23,7 @@ public sealed class FormidableFormContext
         Engine = engine;
     }
 
-    /// <summary>The roots' constructor: the engine, the root's own <c>FocusFirstErrorAsync</c>, a reader of the engine the root holds at the time of the call, and the root's own submit flag where it keeps one.</summary>
+    /// <summary>The roots' constructor: the engine, the root's own <c>FocusFirstErrorAsync</c>, a reader of the engine the root holds at the time of the call, and a reader of the submit flag the context reports for the root.</summary>
     /// <param name="engine">The engine the context exposes.</param>
     /// <param name="focusFirstError">The root's <c>FocusFirstErrorAsync</c>, so its <c>PrepareFocus</c> and <c>FocusFallback</c> travel with the move.</param>
     /// <param name="currentEngine">Reads the engine the root holds when it is called, or <see langword="null"/> once the root holds none.</param>

@@ -285,9 +285,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         var engine = RequireEngine();
         var submit = RootSubmit.RunAsync(engine, () => _engine);
 
-        // Read once this submit's check has begun, so any later count is a newer submit's, through
-        // this method or the EditContext's ValidateAsync(). The newer submit decides, as under
-        // FormidableForm: it moves focus if it blocks, and nothing should move if it saved.
+        // Read once this submit's check has begun (see BlockedSubmitMovesFocus).
         var checksBegun = engine.SubmitChecksBegun;
         var outcome = await submit;
         if (outcome is null)
@@ -299,13 +297,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
             return RootSubmit.Superseded;
         }
 
-        // No move on a renderer that says it is static: a form posted on a static render, or in the
-        // prerender of a page that names its form, runs this where no script can run, and the
-        // blocked outcome is the page's to route rather than an error for a move that cannot happen.
-        if (!outcome.CanProceed
-            && FocusFirstErrorOnInvalidSubmit
-            && engine.SubmitChecksBegun == checksBegun
-            && !RendererDeclaresItselfStatic())
+        if (BlockedSubmitMovesFocus(outcome, engine, checksBegun))
         {
             await FocusFirstErrorAsync();
         }
@@ -313,22 +305,25 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         return outcome;
     }
 
-    /// <summary>Whether the renderer says outright that it is not interactive; a renderer that cannot say counts as interactive.</summary>
-    /// <returns><see langword="true"/> only when <c>RendererInfo.IsInteractive</c> reads <see langword="false"/>.</returns>
-    // The same reading FormidableForm makes before it renders: bUnit's test renderer throws from
-    // RendererInfo unless a test declares one, and a renderer that declines to say has not said
-    // it is static.
-    private bool RendererDeclaresItselfStatic()
-    {
-        try
-        {
-            return !RendererInfo.IsInteractive;
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-    }
+    /// <summary>Whether a submit that answered <paramref name="outcome"/> moves focus to the first error: it blocked, <see cref="FocusFirstErrorOnInvalidSubmit"/> asks for the move, no newer submit has begun, and the renderer has not said it is static.</summary>
+    /// <param name="outcome">The submit's outcome; <see langword="null"/> for a submit whose engine this component no longer holds.</param>
+    /// <param name="engine">The engine the submit ran on.</param>
+    /// <param name="checksBegun">The engine's count of submit checks begun, read once that submit's check had begun.</param>
+    /// <returns><see langword="true"/> when the move is owed.</returns>
+    // Both submit routes ask this, ValidateForSubmitAsync and the EditContext's ValidateAsync(),
+    // so the two cannot disagree about when focus moves. The count is read once the submit's
+    // check has begun, so any later count is a newer submit's, through either route. The newer
+    // submit decides, as under FormidableForm: it moves focus if it blocks, and nothing should
+    // move if it passed. A load is not a submit, so a submit a load took the place of still moves
+    // focus, to the first error the form then shows. No move on a renderer that says it is
+    // static: a form posted on a static render, or in the prerender of a page that names its
+    // form, runs the submit where no script can run, and the blocked answer stands rather than
+    // an error for a move that cannot happen.
+    private bool BlockedSubmitMovesFocus(SubmitOutcome? outcome, FormidableEngine<TModel> engine, int checksBegun) =>
+        outcome is { CanProceed: false }
+        && FocusFirstErrorOnInvalidSubmit
+        && engine.SubmitChecksBegun == checksBegun
+        && !RendererReading.DeclaresItselfStatic(this, static validator => validator.RendererInfo);
 
 #if NET11_0_OR_GREATER
     /// <summary>Answers the <see cref="EditContext"/>'s validation request with this component's submit, so the <see cref="EditForm"/> around it chooses its callback on that submit's answer.</summary>
@@ -381,22 +376,13 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         {
             var submit = RootSubmit.RunAsync(engine, () => _engine);
 
-            // Read once the submit's check has begun, so any later count is a newer submit's. That
-            // newer submit decides, as under FormidableForm: it moves focus if it blocks, and
-            // nothing should move if it passed. A load is not a submit, so a submit a load took the
-            // place of still moves focus, to the first error the form then shows.
+            // Read once the submit's check has begun (see BlockedSubmitMovesFocus).
             var checksBegun = engine.SubmitChecksBegun;
             outcome = await submit.WaitAsync(cancellationToken);
 
-            // No move on a renderer that says it is static: a form posted on a static render, or in
-            // the prerender of a page that names its form, runs this request where no script can
-            // run, and the blocked answer stands rather than handing the boundary an error for a
-            // move that cannot happen. The move is not awaited here: it waits for Blazor's
-            // form-level flag to go down, which this request lowers only once this task has ended.
-            if (outcome is { CanProceed: false }
-                && FocusFirstErrorOnInvalidSubmit
-                && engine.SubmitChecksBegun == checksBegun
-                && !RendererDeclaresItselfStatic())
+            // The move is not awaited here: it waits for Blazor's form-level flag to go down,
+            // which this request lowers only once this task has ended.
+            if (BlockedSubmitMovesFocus(outcome, engine, checksBegun))
             {
                 _ = MoveFocusOnceValidatedAsync(engine, checksBegun);
             }
