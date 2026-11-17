@@ -13,7 +13,7 @@ namespace Formidable.Tests;
 /// the process, and one that selects nothing is never remembered, so a test that depends on what is
 /// remembered validates under a profile of its own (a name and a ruleset no other test uses).
 /// </summary>
-[Collection(ProcessGlobalStateCollection.Name)]
+[Collection(ExclusiveGlobalStateCollection.Name)]
 public class EmptyProfileSelectionCheckTests
 {
     /// <summary>A profile that leaves out the default rules and names one ruleset no validator here declares.</summary>

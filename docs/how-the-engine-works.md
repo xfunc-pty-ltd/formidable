@@ -441,6 +441,11 @@ An untagged child scope or dependent rule under an untagged rule, and a `ChildRu
 tags are its parent declaration's, propagated), never scope a verdict unless an `Include()` owns
 the consultation or, before any owner is known, sits in the set.
 
+A replaced `ValidatorOptions.Global.ValidatorSelectors.RulesetValidatorSelectorFactory` changes
+both rules when its selector is of another type than FluentValidation's own
+`RulesetValidatorSelector`. Such a selector may admit a rule by more than its rulesets, so every
+child or dependent decision it makes scopes the verdict.
+
 A `LiveProfile` swapped at runtime is read at the next pass's begin; the rules both profiles
 select keep their verdicts, a profile-scoped verdict re-runs, and a rule the store has never
 answered runs.
@@ -940,7 +945,10 @@ never runs on it and leaves the capability on.
 A rule declared inside `DependentRules` is not one of the validator's own rules. FluentValidation
 asks the selector about it outside a child context, from inside the rule carrying it. So the set's
 selector lists the dependent rules of the rules it holds, at any depth, and hands each to the
-profile's own ruleset selector, as a whole-profile run decides it.
+selector FluentValidation's global ruleset-selector factory builds for the profile.
+
+A whole-profile run asks that same selector, so a replaced factory decides a dependent rule, and a
+child validator's rule, on the rule-level path as it does there.
 
 A dependent rule runs only when its carrying rule runs and adds no failure (a warning counts). A
 condition on the carrying rule itself (a `When` block around it) can stop that rule running, and

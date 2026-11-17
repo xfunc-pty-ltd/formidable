@@ -2,7 +2,7 @@ namespace Formidable;
 
 /// <summary>The outcome of one <see cref="IRuleLevelValidator{TModel}.ValidateRulesAsync"/> call: its report, and whether the answer holds only for the profile it ran under.</summary>
 /// <param name="Report">The issues the rules produced, mapped as validating the whole profile maps them.</param>
-/// <param name="IsProfileScoped"><see langword="true"/> when a rule's child scope or dependent rules were filtered by the profile's ruleset names (inside an <c>Include()</c> among the validator's own rules, or at a rule in a child validator, an <c>Include()</c> or <c>DependentRules</c> that not every profile selecting the validator's own rule above it selects), so the report answers for that profile alone; reported per call, never per rule.</param>
+/// <param name="IsProfileScoped"><see langword="true"/> when a rule's child scope or dependent rules were filtered by the profile's ruleset names (inside an <c>Include()</c> among the validator's own rules, at a rule in a child validator, an <c>Include()</c> or <c>DependentRules</c> that not every profile selecting the validator's own rule above it selects, or at any such rule a selector of another type than FluentValidation's own decided), so the report answers for that profile alone; reported per call, never per rule.</param>
 /// <remarks>
 /// <paramref name="IsProfileScoped"/> being <see langword="false"/> means every profile that
 /// selects these rules produces the same report at the same model state. Which rules the report speaks for is the caller's to check: it mixes

@@ -1,8 +1,8 @@
 namespace Formidable.Tests;
 
 /// <summary>
-/// Serializes the test classes that write process-global state — FluentValidation's global
-/// validator-selector factory and the default thread cultures — against one another. Each such
+/// Serializes the test classes that write process-global state (the default thread cultures, and
+/// the Trace listeners) against one another. Each such
 /// class already restores what it wrote, which settles the value but not the window: xunit runs
 /// one class's <c>[Fact]</c>s one at a time on its own, and runs different classes in parallel,
 /// so a restore says nothing about what another class read while the write stood. This collection

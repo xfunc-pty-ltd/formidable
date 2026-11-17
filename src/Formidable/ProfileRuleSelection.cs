@@ -7,7 +7,7 @@ namespace Formidable;
 // Shared by the adapter's rule listing, its inspection members and the empty-selection check, so
 // all three ask one selector about a validator's top-level rules. The listing returns an admitted
 // Include as one rule; the check goes on to ask the same selector about the included validator's
-// rules.
+// rules. A set of rules run apart hands its dependent and child decisions to this selector too.
 internal static class ProfileRuleSelection
 {
     /// <summary>The rules <paramref name="profile"/> selects from <paramref name="rules"/>, in declaration order, as the profile's selector answers for each.</summary>

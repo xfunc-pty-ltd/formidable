@@ -213,6 +213,13 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <exception cref="ArgumentException">An identity in <paramref name="rules"/> did not come from <see cref="SelectRules"/> on this instance, or is the default identity.</exception>
     /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>.</exception>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
+    /// <remarks>
+    /// The rules inside <c>DependentRules</c>, and a child validator's rules, are admitted by the
+    /// selector FluentValidation's global ruleset-selector factory builds for the profile, as
+    /// validating the whole profile admits them. A replaced factory whose selector is of another
+    /// type than <see cref="RulesetValidatorSelector"/> may admit by more than rulesets, so each
+    /// such answer marks the result <see cref="RuleLevelResult.IsProfileScoped"/>.
+    /// </remarks>
     public async Task<RuleLevelResult> ValidateRulesAsync(TModel model, ValidationProfile profile,
         IReadOnlyList<RuleIdentity> rules, CancellationToken cancellationToken = default)
     {
@@ -230,7 +237,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
         // holds: FluentValidation asks the selector about every rule it carries on each call, so
         // asking about one rule at a time costs that walk once per rule.
         var targets = ResolveRules(abstractValidator, rules);
-        var selector = new RuleSetSelector(targets, DependentsOf(targets), BuildWholeProfileSelector(profile));
+        var selector = new RuleSetSelector(targets, DependentsOf(targets), ProfileRuleSelection.BuildProfileSelector(profile));
         var context = new ValidationContext<TModel>(model, new PropertyChain(), selector);
         var report = ToReport(await _validator.ValidateAsync(context, cancellationToken).ConfigureAwait(false));
         return new RuleLevelResult(report, selector.SawProfileScopedDecision);
@@ -310,14 +317,15 @@ public sealed partial class FluentValidationModelValidator<TModel>
         }
     }
 
-    /// <summary>Admits exactly the given top-level rules, by reference, and hands their dependent rules and child-context decisions to the profile's own ruleset selector.</summary>
+    /// <summary>Admits exactly the given top-level rules, by reference, and hands their dependent rules and child-context decisions to the profile's own selector.</summary>
     /// <remarks>
     /// A dependent rule of an admitted rule, and a child whose adaptor carries no rulesets, are
-    /// delegated to the profile's <see cref="RulesetValidatorSelector"/>, the selector shape a
-    /// full validation uses, so they filter identically. A child whose adaptor carries rulesets
-    /// runs under a selector FluentValidation builds from those alone and never reaches this one.
-    /// It also records whether any such decision depended on the profile rather than on the
-    /// admitting rule, which becomes <see cref="RuleLevelResult.IsProfileScoped"/> for the set.
+    /// delegated to the selector FluentValidation's global ruleset-selector factory builds for the
+    /// profile, the one a full validation asks, so they filter identically. A child whose adaptor
+    /// carries rulesets runs under a selector FluentValidation builds from those alone and never
+    /// reaches this one. It also records whether any such decision depended on the profile rather
+    /// than on the admitting rule, which becomes <see cref="RuleLevelResult.IsProfileScoped"/> for
+    /// the set.
     /// </remarks>
     // FluentValidation asks about a dependent rule outside a child context, from inside the rule
     // carrying it, so the list of dependents is what tells one apart from a top-level rule the set
@@ -327,7 +335,13 @@ public sealed partial class FluentValidationModelValidator<TModel>
     {
         private readonly HashSet<IValidationRule> _rules;
         private readonly HashSet<IValidationRule>? _dependents;
-        private readonly RulesetValidatorSelector _childSelector;
+        private readonly IValidatorSelector _childSelector;
+
+        // Whether the delegated selector is FluentValidation's own, which admits a rule by its
+        // rulesets and the profile's names alone. Only then does a decision that follows from the
+        // admitting rule's rulesets hold for every profile; a replaced factory's selector may
+        // admit by anything, so each of its decisions is taken to answer for this profile alone.
+        private readonly bool _admitsByRuleSets;
 
         // Which admitted rule a child-context consultation, or a dependent rule's, belongs to.
         // FluentValidation runs top-level rules sequentially and asks CanExecute for one at the
@@ -341,11 +355,12 @@ public sealed partial class FluentValidationModelValidator<TModel>
         public RuleSetSelector(
             HashSet<IValidationRule> rules,
             HashSet<IValidationRule>? dependents,
-            RulesetValidatorSelector childSelector)
+            IValidatorSelector childSelector)
         {
             _rules = rules;
             _dependents = dependents;
             _childSelector = childSelector;
+            _admitsByRuleSets = childSelector.GetType() == typeof(RulesetValidatorSelector);
         }
 
         public bool SawProfileScopedDecision { get; private set; }
@@ -368,7 +383,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
                 }
             }
 
-            if (!ChildDecisionIsProfileIndependent(rule))
+            if (!_admitsByRuleSets || !ChildDecisionIsProfileIndependent(rule))
             {
                 SawProfileScopedDecision = true;
             }
@@ -526,13 +541,6 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
     private void VerifyRuleSets(ValidationProfile profile) =>
         ProfiledValidator<TModel>.CheckProfile(_validator, profile);
-
-    /// <summary>The stock <see cref="RulesetValidatorSelector"/> for the profile's names, which <see cref="RuleSetSelector"/> delegates child-context decisions to.</summary>
-    /// <param name="profile">The profile to build the selector for.</param>
-    /// <returns>A selector over <see cref="ValidationProfile.ToRuleSetNames"/>.</returns>
-    // The shape a full validation produces while the global factory is unreplaced.
-    private static RulesetValidatorSelector BuildWholeProfileSelector(ValidationProfile profile) =>
-        new(profile.ToRuleSetNames());
 
     private AbstractValidator<TModel> RequireRuleLevelCapability()
     {
