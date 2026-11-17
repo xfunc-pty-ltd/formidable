@@ -5,14 +5,15 @@ namespace Formidable;
 /// <summary>Base class for a validator that wraps another, forwarding every member the wrapped validator implements and answering the rest as an absent capability.</summary>
 /// <typeparam name="TModel">The model type the validator accepts.</typeparam>
 /// <remarks>
-/// A wrapper written against <see cref="IModelValidator{TModel}"/> alone validates correctly and
-/// presents neither <see cref="IRuleInspectingValidator{TModel}"/> nor
-/// <see cref="IRuleLevelValidator{TModel}"/>, and no caller's test can tell that from a validator
-/// that never had them. Override <see cref="Validate"/>, <see cref="ValidateAsync"/> and
-/// <see cref="ValidateRulesAsync"/> together when changing what is validated: a form that can
-/// take the validator rule by rule reaches only the last. To withdraw that capability instead,
-/// override <see cref="CanValidateByRule"/> to <see langword="false"/> and the three members
-/// that select or run rules to throw <see cref="NotSupportedException"/>.
+/// A wrapper written against <see cref="IModelValidator{TModel}"/> alone validates correctly but
+/// presents neither capability, and no caller's test can tell it from one that never had them.
+/// Override <see cref="Validate"/>, <see cref="ValidateAsync"/> and
+/// <see cref="ValidateRulesAsync"/> together to change what is validated, and a form keeps
+/// checking rule by rule. Override <see cref="ValidateAsync"/> alone and a form validates the
+/// whole profile through it; a validator not derived from this class answers for itself.
+/// To withdraw the capability, override <see cref="CanValidateByRule"/> to
+/// <see langword="false"/> and the three members that select or run rules to throw
+/// <see cref="NotSupportedException"/>.
 /// </remarks>
 // Deriving is the point, so there is no way to construct the pass-through on its own: forwarding
 // everything and changing nothing is what a caller already has when it holds the wrapped
@@ -20,9 +21,16 @@ namespace Formidable;
 public abstract class DelegatingModelValidator<TModel>
     : IModelValidator<TModel>, IRuleInspectingValidator<TModel>, IRuleLevelValidator<TModel>
 {
+    private const int Unread = 0;
+    private const int Absent = 1;
+    private const int Present = 2;
+
     private readonly IModelValidator<TModel> _inner;
     private readonly IRuleInspectingValidator<TModel>? _inspector;
     private readonly IRuleLevelValidator<TModel>? _ruleLevel;
+
+    // One of the three constants above; an int, so a read is never torn.
+    private int _validateAsyncOverriddenAlone;
 
     /// <summary>Wraps <paramref name="inner"/>, resolving which capability interfaces it implements once here; its testers are read on every call.</summary>
     /// <param name="inner">The validator every member of this class forwards to.</param>
@@ -74,17 +82,61 @@ public abstract class DelegatingModelValidator<TModel>
             ? inspector.GetDeclaredFieldPaths(profile)
             : FrozenSet<string>.Empty;
 
-    /// <summary>The wrapped validator's own answer; <see langword="false"/> where it does not implement <see cref="IRuleLevelValidator{TModel}"/>.</summary>
-    public virtual bool CanValidateByRule => _ruleLevel?.CanValidateByRule ?? false;
+    /// <summary>The wrapped validator's own answer; <see langword="false"/> where it does not implement <see cref="IRuleLevelValidator{TModel}"/>, or where this class overrides <see cref="ValidateAsync"/> and not <see cref="ValidateRulesAsync"/>.</summary>
+    /// <remarks>
+    /// A form that can take a validator rule by rule calls <see cref="ValidateRulesAsync"/> and
+    /// never <see cref="ValidateAsync"/>. So where the <see cref="ValidateAsync"/> override is
+    /// declared in a class that has no <see cref="ValidateRulesAsync"/> override of its own or
+    /// below it, this answers <see langword="false"/> and a form validates through that override.
+    /// An override of <see cref="Validate"/> alone changes nothing here: no form calls it.
+    /// </remarks>
+    public virtual bool CanValidateByRule => (_ruleLevel?.CanValidateByRule ?? false) && !ValidateAsyncOverriddenAlone();
+
+    /// <summary>Whether a form taking this validator rule by rule would miss its <see cref="ValidateAsync"/> override; worked out on the first ask and kept.</summary>
+    /// <returns><see langword="true"/> when the class declaring the <see cref="ValidateAsync"/> a call reaches derives from the class declaring the <see cref="ValidateRulesAsync"/> a call reaches.</returns>
+    // Kept because the answer belongs to this instance's class, which never changes, while the
+    // capability is read at every field's class computation. Two threads asking at once both work
+    // it out and write the same answer.
+    private bool ValidateAsyncOverriddenAlone()
+    {
+        var known = _validateAsyncOverriddenAlone;
+        if (known == Unread)
+        {
+            known = EntryPointsDisagree() ? Present : Absent;
+            _validateAsyncOverriddenAlone = known;
+        }
+
+        return known == Present;
+    }
+
+    // Each entry point is bound as a C# method group on this instance. A method group on a
+    // virtual method resolves the override a call reaches, so each delegate's Method names the
+    // class that declares the method a form would run; nothing is looked up by name, so trimming
+    // has nothing to keep. A ValidateRulesAsync override in the same class as the ValidateAsync
+    // override, or in a class below it, was written knowing that override, so only a ValidateAsync
+    // declared further down than the ValidateRulesAsync in use withdraws the capability.
+    private bool EntryPointsDisagree()
+    {
+        Func<TModel, ValidationProfile, CancellationToken, Task<ValidationReport>> validate = ValidateAsync;
+        var validateOwner = validate.Method.DeclaringType;
+        if (validateOwner is null || validateOwner == typeof(DelegatingModelValidator<TModel>))
+        {
+            return false;
+        }
+
+        Func<TModel, ValidationProfile, IReadOnlyList<RuleIdentity>, CancellationToken, Task<RuleLevelResult>> byRule =
+            ValidateRulesAsync;
+        var byRuleOwner = byRule.Method.DeclaringType;
+        return byRuleOwner == typeof(DelegatingModelValidator<TModel>)
+            || (byRuleOwner is not null && validateOwner.IsSubclassOf(byRuleOwner));
+    }
 
     /// <summary>The wrapped validator's own identities for the rules <paramref name="profile"/> selects, which <see cref="ValidateRulesAsync"/> hands back to it.</summary>
     /// <param name="profile">The rule selection to list.</param>
     /// <returns>The identities, scoped to the wrapped validator instance.</returns>
-    /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>: the wrapped validator does not implement <see cref="IRuleLevelValidator{TModel}"/>, or answers <see langword="false"/> itself.</exception>
+    /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>: the wrapped validator does not implement <see cref="IRuleLevelValidator{TModel}"/>, or answers <see langword="false"/> itself, or this class overrides <see cref="ValidateAsync"/> and not <see cref="ValidateRulesAsync"/>.</exception>
     public virtual IReadOnlyList<RuleIdentity> SelectRules(ValidationProfile profile) =>
-        _ruleLevel is { } ruleLevel
-            ? ruleLevel.SelectRules(profile)
-            : throw NoRuleLevelCapability();
+        RuleLevel().SelectRules(profile);
 
     /// <summary>Validates <paramref name="model"/> against exactly the given rules through the wrapped validator.</summary>
     /// <param name="model">The model to validate.</param>
@@ -92,26 +144,45 @@ public abstract class DelegatingModelValidator<TModel>
     /// <param name="rules">Identities from <see cref="SelectRules"/> on this instance.</param>
     /// <param name="cancellationToken">Cancels an async rule still running.</param>
     /// <returns>The wrapped validator's result.</returns>
-    /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>: the wrapped validator does not implement <see cref="IRuleLevelValidator{TModel}"/>, or answers <see langword="false"/> itself.</exception>
+    /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>: the wrapped validator does not implement <see cref="IRuleLevelValidator{TModel}"/>, or answers <see langword="false"/> itself, or this class overrides <see cref="ValidateAsync"/> and not <see cref="ValidateRulesAsync"/>.</exception>
     public virtual Task<RuleLevelResult> ValidateRulesAsync(
         TModel model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules,
         CancellationToken cancellationToken = default) =>
-        _ruleLevel is { } ruleLevel
-            ? ruleLevel.ValidateRulesAsync(model, profile, rules, cancellationToken)
-            : throw NoRuleLevelCapability();
+        RuleLevel().ValidateRulesAsync(model, profile, rules, cancellationToken);
 
     /// <summary>The wrapped validator's own partition of <paramref name="rules"/> into groups no profile splits.</summary>
     /// <param name="rules">Identities from <see cref="SelectRules"/> on this instance.</param>
     /// <returns>The groups the wrapped validator reports.</returns>
-    /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>: the wrapped validator does not implement <see cref="IRuleLevelValidator{TModel}"/>, or answers <see langword="false"/> itself.</exception>
+    /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>: the wrapped validator does not implement <see cref="IRuleLevelValidator{TModel}"/>, or answers <see langword="false"/> itself, or this class overrides <see cref="ValidateAsync"/> and not <see cref="ValidateRulesAsync"/>.</exception>
     public virtual IReadOnlyList<IReadOnlyList<RuleIdentity>> GroupBySelectionClass(
         IReadOnlyList<RuleIdentity> rules) =>
         // The wrapped validator's own partition is forwarded rather than coarsened: a coarser
         // answer of the wrapper's own would cost the reuse of the wrapped validator's answers
         // without changing a single verdict, so nothing would report the loss.
-        _ruleLevel is { } ruleLevel
-            ? ruleLevel.GroupBySelectionClass(rules)
-            : throw NoRuleLevelCapability();
+        RuleLevel().GroupBySelectionClass(rules);
+
+    /// <summary>The wrapped validator, for the members that select or run rules one set at a time.</summary>
+    /// <returns>The wrapped validator, as the interface.</returns>
+    /// <exception cref="NotSupportedException">The wrapped validator does not implement the interface, or this class overrides <see cref="ValidateAsync"/> and not <see cref="ValidateRulesAsync"/>.</exception>
+    // A wrapped validator that answers false itself is left to refuse, since its own contract
+    // promises that and its message names its own reason.
+    private IRuleLevelValidator<TModel> RuleLevel()
+    {
+        if (_ruleLevel is not { } ruleLevel)
+        {
+            throw NoRuleLevelCapability();
+        }
+
+        if (ValidateAsyncOverriddenAlone())
+        {
+            throw FormidableConfigurationError.Mark(new NotSupportedException(
+                $"'{FriendlyTypeName.Of(GetType())}' overrides ValidateAsync and not ValidateRulesAsync, so a form " +
+                "taking its rules one set at a time would never run that override. Override ValidateRulesAsync " +
+                $"as well to keep that path. Check {nameof(CanValidateByRule)} first."));
+        }
+
+        return ruleLevel;
+    }
 
     private NotSupportedException NoRuleLevelCapability() =>
         FormidableConfigurationError.Mark(new NotSupportedException(

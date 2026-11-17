@@ -1443,10 +1443,13 @@ public sealed class StagedUploadsValidator(
 
 Two capabilities sit beside the `IModelValidator<TModel>` seam a form validates through:
 `IRuleInspectingValidator<TModel>` reads what the rules demand of a field, and
-`IRuleLevelValidator<TModel>` runs a chosen set of them. `DelegatingModelValidator<TModel>` forwards
-all three interfaces and answers each capability tester with the wrapped validator's own answer.
-Wrap a validator that has neither and the wrapper presents neither: inspection reports the empty
-answer, and the members that select or run rules one set at a time throw `NotSupportedException`.
+`IRuleLevelValidator<TModel>` runs a chosen set of them. Each has a property saying whether the
+validator can use it, `CanInspectRules` and `CanValidateByRule`.
+
+`DelegatingModelValidator<TModel>` forwards all three interfaces and answers both properties with
+the wrapped validator's own answer, apart from the `ValidateAsync` case below. Wrap a validator that
+has neither and the wrapper presents neither: inspection reports the empty answer, and the members
+that select or run rules one set at a time throw `NotSupportedException`.
 
 **Three things go quiet where a validator presents neither.** Required markers and `aria-required`
 reach only the fields `RequiredOverride` declares. `DiscloseLoadedValuesAsync` goes on disclosing a
@@ -1465,8 +1468,17 @@ alike. The other capability has no line.
 **Override every entry point that validates.** `Validate`, `ValidateAsync` and `ValidateRulesAsync`
 all take a model, and which runs is the caller's choice. A form that can take the validator rule by
 rule validates through `ValidateRulesAsync`, a set of rules at a time, and reaches neither of the
-other two. A wrapper staging its model at `ValidateAsync` alone therefore changes nothing that form
-sees.
+other two.
+
+So a wrapper that overrides `ValidateAsync` and not `ValidateRulesAsync` answers `CanValidateByRule`
+with `false` itself, whatever the wrapped validator answers. The form then validates through its
+`ValidateAsync`, the staging included, and no rule's answer is reused between checks. After a
+submit, one edit can run a rule twice: in the live check, and again in the whole-form re-check. On
+the default profiles, a wrapper checked rule by rule answers that re-check from the live check's
+result.
+
+Its required markers and a load's confirmations stay, since they come from reading the rules, not
+from running them a set at a time. Override all three to keep the reuse.
 
 **State the wrapper reads from outside the model needs telling.** Staging a new upload raises no
 field-changed notification, so the form goes on judging the model as it was until the next edit,

@@ -94,16 +94,16 @@ public class DelegatingModelValidatorTests
     private static FluentValidationModelValidator<TestOrder> Adapter() =>
         new(new TestOrderValidator());
 
-    // (a) The whole point, at the seam a caller actually tests: a subclass that overrides one
-    // validation member and writes nothing else still presents both optional capabilities, and
-    // both answer what the wrapped validator answers rather than merely being present. Mutation
-    // that must break this: drop either optional interface from the base's declaration — the
-    // members stay compiled and public, so only the interface assertions notice.
+    // (a) The whole point, at the seam a caller actually tests: a subclass that overrides every
+    // validation member still presents both optional capabilities, and both answer what the
+    // wrapped validator answers rather than merely being present. Mutation that must break this:
+    // drop either optional interface from the base's declaration — the members stay compiled and
+    // public, so only the interface assertions notice.
     [Fact]
-    public async Task A_subclass_overriding_only_validation_keeps_both_optional_capabilities()
+    public async Task A_subclass_overriding_every_validation_member_keeps_both_optional_capabilities()
     {
         var inner = Adapter();
-        IModelValidator<TestOrder> subject = new StagedAtOneEntryPoint(inner);
+        IModelValidator<TestOrder> subject = new StagedAtEveryEntryPoint(inner);
 
         var inspector = Assert.IsAssignableFrom<IRuleInspectingValidator<TestOrder>>(subject);
         Assert.True(inspector.CanInspectRules);
@@ -118,8 +118,8 @@ public class DelegatingModelValidatorTests
         Assert.True(ruleLevel.CanValidateByRule);
 
         // Selection and execution are one capability, so reading the identities is only half of
-        // it: one of them is run here, and the rule it names produces the failure a whole-profile
-        // run produces for the same model.
+        // it: each of them is run here, and together they produce what the wrapper's own
+        // ValidateAsync produces for the same model, the staged description included.
         var rules = ruleLevel.SelectRules(ValidationProfile.Submit);
         Assert.Equal(inner.SelectRules(ValidationProfile.Submit).Count, rules.Count);
 
@@ -131,8 +131,146 @@ public class DelegatingModelValidatorTests
         }
 
         Assert.Equal(
-            (await inner.ValidateAsync(order, ValidationProfile.Submit)).Issues,
+            (await subject.ValidateAsync(order, ValidationProfile.Submit)).Issues,
             byRule);
+    }
+
+    // A subclass that overrides ValidateAsync and leaves ValidateRulesAsync as the base wrote it
+    // keeps inspection and the rule-level interface, answers that it cannot validate by rule, and
+    // refuses the three members that select or run rules as that answer promises. Mutation that
+    // must break this: let the base's capability tester forward the wrapped validator's answer
+    // alone, and the subclass claims a capability that never reaches its override.
+    [Fact]
+    public async Task A_subclass_overriding_ValidateAsync_alone_keeps_inspection_and_is_validated_whole()
+    {
+        IModelValidator<TestOrder> subject = new StagedAtOneEntryPoint(Adapter());
+
+        var inspector = Assert.IsAssignableFrom<IRuleInspectingValidator<TestOrder>>(subject);
+        Assert.True(inspector.CanInspectRules);
+        Assert.Equal(
+            FieldRequirement.Required,
+            inspector.GetFieldRequirement(nameof(TestOrder.Description), ValidationProfile.Submit));
+
+        var ruleLevel = Assert.IsAssignableFrom<IRuleLevelValidator<TestOrder>>(subject);
+        Assert.False(ruleLevel.CanValidateByRule);
+        var refusal = Assert.Throws<NotSupportedException>(() => ruleLevel.SelectRules(ValidationProfile.Submit));
+        Assert.Contains(nameof(StagedAtOneEntryPoint), refusal.Message);
+        Assert.Throws<NotSupportedException>(() => ruleLevel.GroupBySelectionClass([]));
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => ruleLevel.ValidateRulesAsync(new TestOrder(), ValidationProfile.Submit, [default]));
+
+        Assert.DoesNotContain(
+            (await subject.ValidateAsync(new TestOrder(), ValidationProfile.Submit)).Errors,
+            issue => issue.Path == nameof(TestOrder.Description));
+    }
+
+    /// <summary>The validation members a <see cref="Shaped"/> subclass overrides, and where.</summary>
+    public enum OverrideShape
+    {
+        None,
+        ValidateAsyncAlone,
+        ValidateAlone,
+        ValidateRulesAsyncAlone,
+        ValidateAsyncAndValidateRulesAsync,
+        AllThree,
+        ValidateAsyncInheritedFromABase,
+        ValidateAsyncBelowABaseOverridingBoth,
+        ValidateRulesAsyncBelowABaseOverridingValidateAsync,
+    }
+
+    private class OverridesValidateAsync(IModelValidator<TestOrder> inner) : DelegatingModelValidator<TestOrder>(inner)
+    {
+        public override Task<ValidationReport> ValidateAsync(
+            TestOrder model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+            base.ValidateAsync(model, profile, cancellationToken);
+    }
+
+    private sealed class OverridesValidate(IModelValidator<TestOrder> inner) : DelegatingModelValidator<TestOrder>(inner)
+    {
+        public override ValidationReport Validate(TestOrder model, ValidationProfile profile) => base.Validate(model, profile);
+    }
+
+    private sealed class OverridesValidateRulesAsync(IModelValidator<TestOrder> inner) : DelegatingModelValidator<TestOrder>(inner)
+    {
+        public override Task<RuleLevelResult> ValidateRulesAsync(
+            TestOrder model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules,
+            CancellationToken cancellationToken = default) =>
+            base.ValidateRulesAsync(model, profile, rules, cancellationToken);
+    }
+
+    private class OverridesBoth(IModelValidator<TestOrder> inner) : DelegatingModelValidator<TestOrder>(inner)
+    {
+        public override Task<ValidationReport> ValidateAsync(
+            TestOrder model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+            base.ValidateAsync(model, profile, cancellationToken);
+
+        public override Task<RuleLevelResult> ValidateRulesAsync(
+            TestOrder model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules,
+            CancellationToken cancellationToken = default) =>
+            base.ValidateRulesAsync(model, profile, rules, cancellationToken);
+    }
+
+    private sealed class OverridesAllThree(IModelValidator<TestOrder> inner) : OverridesBoth(inner)
+    {
+        public override ValidationReport Validate(TestOrder model, ValidationProfile profile) => base.Validate(model, profile);
+    }
+
+    private sealed class InheritsValidateAsync(IModelValidator<TestOrder> inner) : OverridesValidateAsync(inner);
+
+    private sealed class ValidateAsyncBelowBoth(IModelValidator<TestOrder> inner) : OverridesBoth(inner)
+    {
+        public override Task<ValidationReport> ValidateAsync(
+            TestOrder model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+            base.ValidateAsync(model, profile, cancellationToken);
+    }
+
+    private sealed class ValidateRulesAsyncBelowValidateAsync(IModelValidator<TestOrder> inner) : OverridesValidateAsync(inner)
+    {
+        public override Task<RuleLevelResult> ValidateRulesAsync(
+            TestOrder model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules,
+            CancellationToken cancellationToken = default) =>
+            base.ValidateRulesAsync(model, profile, rules, cancellationToken);
+    }
+
+    private static DelegatingModelValidator<TestOrder> Shaped(OverrideShape shape, IModelValidator<TestOrder> inner) => shape switch
+    {
+        OverrideShape.None => new PassThroughValidator(inner),
+        OverrideShape.ValidateAsyncAlone => new OverridesValidateAsync(inner),
+        OverrideShape.ValidateAlone => new OverridesValidate(inner),
+        OverrideShape.ValidateRulesAsyncAlone => new OverridesValidateRulesAsync(inner),
+        OverrideShape.ValidateAsyncAndValidateRulesAsync => new OverridesBoth(inner),
+        OverrideShape.AllThree => new OverridesAllThree(inner),
+        OverrideShape.ValidateAsyncInheritedFromABase => new InheritsValidateAsync(inner),
+        OverrideShape.ValidateAsyncBelowABaseOverridingBoth => new ValidateAsyncBelowBoth(inner),
+        _ => new ValidateRulesAsyncBelowValidateAsync(inner),
+    };
+
+    // A form takes a validator rule by rule through ValidateRulesAsync alone, so a ValidateAsync
+    // override with no ValidateRulesAsync override in its own class or one below it would never
+    // run there: the capability goes. An override of the synchronous Validate is never reached by
+    // a form on either path, so it leaves the capability on. Over a validator that cannot be taken
+    // rule by rule, every shape answers false. Mutations that must break this: answer "no
+    // override" from the detection (the three false rows read true), or withdraw on any
+    // ValidateAsync override (the rows with a ValidateRulesAsync override in the same class or
+    // below read false).
+    [Theory]
+    [InlineData(OverrideShape.None, true)]
+    [InlineData(OverrideShape.ValidateAsyncAlone, false)]
+    [InlineData(OverrideShape.ValidateAlone, true)]
+    [InlineData(OverrideShape.ValidateRulesAsyncAlone, true)]
+    [InlineData(OverrideShape.ValidateAsyncAndValidateRulesAsync, true)]
+    [InlineData(OverrideShape.AllThree, true)]
+    [InlineData(OverrideShape.ValidateAsyncInheritedFromABase, false)]
+    [InlineData(OverrideShape.ValidateAsyncBelowABaseOverridingBoth, false)]
+    [InlineData(OverrideShape.ValidateRulesAsyncBelowABaseOverridingValidateAsync, true)]
+    public void A_subclass_keeps_the_capability_unless_a_form_would_miss_its_ValidateAsync(OverrideShape shape, bool keeps)
+    {
+        IRuleLevelValidator<TestOrder> subject = Shaped(shape, Adapter());
+        IRuleLevelValidator<TestOrder> overIncapable = Shaped(
+            shape, new FluentValidationModelValidator<TestOrder>(new CascadeStoppingOrderValidator()));
+
+        Assert.Equal(keeps, subject.CanValidateByRule);
+        Assert.False(overIncapable.CanValidateByRule);
     }
 
     // (b) Over a validator with nothing beside the validation seam, each capability degrades the
@@ -209,28 +347,27 @@ public class DelegatingModelValidatorTests
         Assert.Equal(string.Empty, order.Description);
     }
 
-    // The obligation the class documents, pinned in the direction it warns about: which entry
-    // point runs is the caller's choice, so a wrapper that changes what is validated at one of
-    // them answers two ways. A caller taking the rule-level path sees the description still
-    // missing; the same wrapper written at every entry point answers the same both ways.
-    // Mutation that must break this: drop the ValidateRulesAsync override from
-    // StagedAtEveryEntryPoint, and the second half stops agreeing.
+    // The obligation the class documents, from the side a form sees: a caller asks the capability
+    // and takes the rule-level path only where it holds, so a wrapper staging its model at
+    // ValidateAsync alone and one staging it at every entry point both have their staged
+    // description judged. Mutation that must break this: answer "no override" from the base's
+    // detection, and the wrapper written at one entry point is taken rule by rule past its stage.
     [Fact]
-    public async Task Changing_what_is_validated_at_one_entry_point_leaves_the_rule_level_path_unchanged()
+    public async Task A_form_judges_the_staged_model_however_many_entry_points_the_wrapper_overrides()
     {
         var order = new TestOrder();
         var inner = Adapter();
 
-        Assert.Contains(
-            await SubmitErrorsByRuleAsync(new StagedAtOneEntryPoint(inner), order),
+        Assert.DoesNotContain(
+            await SubmitErrorsAsAFormAsksAsync(new StagedAtOneEntryPoint(inner), order),
+            issue => issue.Path == nameof(TestOrder.Description));
+        Assert.DoesNotContain(
+            await SubmitErrorsAsAFormAsksAsync(new StagedAtEveryEntryPoint(inner), order),
             issue => issue.Path == nameof(TestOrder.Description));
 
-        var everywhere = new StagedAtEveryEntryPoint(inner);
-        Assert.DoesNotContain(
-            await SubmitErrorsByRuleAsync(everywhere, order),
-            issue => issue.Path == nameof(TestOrder.Description));
-        Assert.DoesNotContain(
-            (await everywhere.ValidateAsync(order, ValidationProfile.Submit)).Errors,
+        // The control: the rules themselves still fail the unstaged description.
+        Assert.Contains(
+            await SubmitErrorsAsAFormAsksAsync(inner, order),
             issue => issue.Path == nameof(TestOrder.Description));
     }
 
@@ -241,15 +378,18 @@ public class DelegatingModelValidatorTests
         Assert.Throws<ArgumentNullException>(() => new PassThroughValidator(null!));
 
     /// <summary>
-    /// Every submit-profile error <paramref name="validator"/> produces through the rule-level
-    /// seam — one call per rule, the shape that attributes every error to the rule that produced
-    /// it — asked for the way a caller finding the capability present asks, so a validator that
-    /// has stopped presenting the capability fails the assertion rather than the compile.
+    /// Every submit-profile error <paramref name="validator"/> produces as a form asks for it:
+    /// through the rule-level seam, one call per rule, where the capability holds, and through
+    /// <see cref="IModelValidator{TModel}.ValidateAsync"/> otherwise.
     /// </summary>
-    private static async Task<List<ValidationIssue>> SubmitErrorsByRuleAsync(
+    private static async Task<List<ValidationIssue>> SubmitErrorsAsAFormAsksAsync(
         IModelValidator<TestOrder> validator, TestOrder order)
     {
-        var ruleLevel = Assert.IsAssignableFrom<IRuleLevelValidator<TestOrder>>(validator);
+        if (validator is not IRuleLevelValidator<TestOrder> { CanValidateByRule: true } ruleLevel)
+        {
+            return [.. (await validator.ValidateAsync(order, ValidationProfile.Submit)).Errors];
+        }
+
         var errors = new List<ValidationIssue>();
         foreach (var rule in ruleLevel.SelectRules(ValidationProfile.Submit))
         {

@@ -995,6 +995,12 @@ never flips the capability. A decorator that derives from `DelegatingModelValida
 forwards the capability; one implementing `IModelValidator<TModel>` alone presents none, and
 loses the rule inspection seam behind the required indicator the same way.
 
+The base withdraws the capability itself where the `ValidateAsync` a call reaches is declared in a
+class with no `ValidateRulesAsync` override of its own or below it. The rule-level path never calls
+`ValidateAsync`, so it would skip whatever that override adds. The base reads both as method groups
+on the instance, which name the classes declaring them, and keeps the answer. An override of
+`Validate` alone leaves the capability on.
+
 The load's vouching half reads the inspection seam too: `DiscloseLoadedValuesAsync` confirms a
 good loaded value only where the validator lists the fields its rules speak for, so a validator
 that cannot be inspected discloses a non-empty loaded value its rules fail (the error names the
