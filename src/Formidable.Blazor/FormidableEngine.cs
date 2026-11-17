@@ -5289,7 +5289,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="resolved">The collection's path, resolved.</param>
     /// <param name="path">The collection's path, which tells a list met again from a new one.</param>
     /// <param name="walked">The record of the lists the read in hand has walked; <see langword="null"/> walks such a list afresh.</param>
-    /// <returns>The count; zero when the path resolves to nothing, to a non-collection, to an empty collection or to a collection that refuses the walk, which all mean no rows to expand into.</returns>
+    /// <returns>The count; zero when the path resolves to nothing, to a non-collection, to an empty collection, or to a collection that refuses the walk or throws as it is counted, which all mean no rows to expand into.</returns>
     // A collection that is itself an element (a row of a list of lists: Matrix[0], as Matrix[][]
     // expands) is read from its list through the load's element read, under the test
     // ToFieldIdentifier's list branch makes, because the introspector reads members and never
@@ -5300,9 +5300,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // refused that walk partway, or that its place builds afresh on each read, is counted by a walk
     // of its own, which meets the same refusal. A collection that refuses the walk (a consumer's own
     // list over a source it reads once) counts zero, the rows before the refusal included, as one
-    // that cannot be read at all does. The refusal stays with that collection: the required marks,
-    // a load and a submit's "checking" all expand through here, and each keeps every other
-    // declared path.
+    // that cannot be read at all does. So does one whose own count throws (a default
+    // ImmutableArray<T>). The refusal stays with that collection: the required marks, a load and a
+    // submit's "checking" all expand through here, and each keeps every other declared path.
     private int CollectionCount(ResolvedField resolved, string path, WalkedCollections? walked)
     {
         object? value;
@@ -5323,7 +5323,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         switch (value)
         {
             case System.Collections.ICollection collection:
-                return collection.Count;
+                try
+                {
+                    return collection.Count;
+                }
+                catch
+                {
+                    return 0;
+                }
             case System.Collections.IEnumerable list
                 when walked is not null
                     && ResolvedFieldExtensions.IsIndexedList(list)
