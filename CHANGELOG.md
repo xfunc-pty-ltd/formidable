@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.2.1] - 2026-11-18
+
+### Fixed
+
+- *(sample)* Give content links the accent colour in dark mode ([dc16864](https://github.com/xfunc-pty-ltd/formidable/commit/dc168649c543dea9390ad05acf73519b732c46d2))
+- *(core)* See a validator's overrides on the .NET 11 runtime ([c702dc5](https://github.com/xfunc-pty-ltd/formidable/commit/c702dc50c8500f9a20704eb99b9d3f9d95f2f1e6))
+
+### Documentation
+
+- Open the README with the form at work ([aba2bc7](https://github.com/xfunc-pty-ltd/formidable/commit/aba2bc74c94b72f7295b5e9554ef26f60247bf86))
+- Show the form at work on the NuGet page ([ad42c4b](https://github.com/xfunc-pty-ltd/formidable/commit/ad42c4b778afcd21ddb7f990fb46280bf1d7c09a))
+- Link the README's tour with its new end card ([f4273ef](https://github.com/xfunc-pty-ltd/formidable/commit/f4273ef44598bc437c776bedde6b77b9557eb2a9))
+
 ## [3.2.0] - 2026-11-04
 
 ### Added
@@ -344,6 +357,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Trimming happens at publish, and the defaults come first-class ([bb84eb5](https://github.com/xfunc-pty-ltd/formidable/commit/bb84eb5b3c9c514fbdbdadd32dee43d27cad21b2))
 - Retire the publish-day markers ([6255237](https://github.com/xfunc-pty-ltd/formidable/commit/62552376cd6712bc79a8cbe41fdae72fbcd05d11))
 
+[3.2.1]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.2.1
 [3.2.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.2.0
 [3.1.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.1.0
 [3.0.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.0.0
