@@ -5,6 +5,45 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.3.0] - 2026-11-18
+
+### Added
+
+- *(core)* Check validators using DependentRules rule by rule ([347903e](https://github.com/xfunc-pty-ltd/formidable/commit/347903eee65dc4b20d6e849c9db8aff85f5d1d0f))
+- *(build)* Ship a net11.0 build of each package beside net10.0 ([d494c23](https://github.com/xfunc-pty-ltd/formidable/commit/d494c2300be9892a903ae41b89a467a086606c13))
+- *(blazor)* Show Blazor's own async checks on every input on .NET 11 ([16230e7](https://github.com/xfunc-pty-ltd/formidable/commit/16230e7aa2bf28f5d8bc5aeb18ed4ebd7add2c78))
+- *(blazor)* Answer EditForm's own validation in attach mode on .NET 11 ([5e93448](https://github.com/xfunc-pty-ltd/formidable/commit/5e934488a8326bd1a57fd858790d38f2caa749f9))
+
+### Fixed
+
+- *(blazor)* Count a list that refuses a second walk as holding no rows ([7e6c998](https://github.com/xfunc-pty-ltd/formidable/commit/7e6c99845792119ba5deb5d156f7bd6493219f74))
+- *(blazor)* Re-check after a reply when a submit or load is cancelled ([6f23f26](https://github.com/xfunc-pty-ltd/formidable/commit/6f23f26de840f97833f7a484ce51731b23ca8354))
+- *(blazor)* Keep IsFormValid current after a load that ends unanswered ([5175139](https://github.com/xfunc-pty-ltd/formidable/commit/51751390b072bb4d087e01b6c2e512f28e83d1cb))
+- *(blazor)* Answer IsFormValid after back-to-back unanswered checks ([89833be](https://github.com/xfunc-pty-ltd/formidable/commit/89833be77e945728ee2cd1e6b49040d6acccaede))
+- *(blazor)* Mark the right fields pending after a cancel callback edit ([a8e56d2](https://github.com/xfunc-pty-ltd/formidable/commit/a8e56d293932f6fa3fb576d50afc63cb24a2b004))
+- *(blazor)* Stop a check that ran no rule standing in for IsFormValid ([c031e89](https://github.com/xfunc-pty-ltd/formidable/commit/c031e894c6f2b47439b7e94b8cae804c52ae3a8f))
+- *(blazor)* Let a submit's checking follow rows added while it runs ([c29a195](https://github.com/xfunc-pty-ltd/formidable/commit/c29a1954ef650b000c9545aca4918a71b1ffe2ea))
+- *(core)* Test the rule-level capability before a kept selection ([70f2667](https://github.com/xfunc-pty-ltd/formidable/commit/70f2667c7ff5dfa0deb5464971c02bedf67ff979))
+- *(blazor)* Leave the form as it was when a server reply throws ([2532b0b](https://github.com/xfunc-pty-ltd/formidable/commit/2532b0bbf5a80150eaadd6884ba6af064546dfb9))
+- *(core)* Run a delegating validator's ValidateAsync override in forms ([169df90](https://github.com/xfunc-pty-ltd/formidable/commit/169df906232c6657131331f84f38ee8c5db244b7))
+- *(core)* Follow a replaced selector factory when checking rule by rule ([186e72c](https://github.com/xfunc-pty-ltd/formidable/commit/186e72c9484b36e8a39467b689189dea1239a6cf))
+- *(blazor)* Count no rows for a collection whose count throws ([e3547be](https://github.com/xfunc-pty-ltd/formidable/commit/e3547beed996e8d1d0a222ba473cca4e15031ac2))
+- *(blazor)* Keep a second reply from re-running a rule that throws ([be6c8b1](https://github.com/xfunc-pty-ltd/formidable/commit/be6c8b1c7b781a451b075ccb1bcbacd3e94eaacb))
+- *(blazor)* Leave the form as it was when a reply's callback throws ([348c6e0](https://github.com/xfunc-pty-ltd/formidable/commit/348c6e018a57eb9c1e9f0cf4eca462be48460804))
+- *(blazor)* Judge a running check by the profile it began with ([40326df](https://github.com/xfunc-pty-ltd/formidable/commit/40326df847125a41a58ba5099b876f6fc4d30b7c))
+- *(blazor)* Skip attach focus moves on static renders or newer submits ([f7a154a](https://github.com/xfunc-pty-ltd/formidable/commit/f7a154aeafddd8612550ed75e23b9b9482af1810))
+
+### Performance
+
+- *(core)* Resolve a batch of paths with one walk per collection ([39cadf2](https://github.com/xfunc-pty-ltd/formidable/commit/39cadf2030b24cff2bac82e00f590c2a7dd063fc))
+- *(blazor)* Resolve each report and declared set in one call ([331453d](https://github.com/xfunc-pty-ltd/formidable/commit/331453daadfcd94381e91ed6e31915f8be1d6a32))
+
+### Documentation
+
+- List the disposed-engine exception on the engine interface ([b0954ab](https://github.com/xfunc-pty-ltd/formidable/commit/b0954ab993b8d4fb3d1ba422b593ec584c43d7aa))
+- Say what .NET 11 changes for static pages, tests and markup ([0c05dbc](https://github.com/xfunc-pty-ltd/formidable/commit/0c05dbc22d010cfa62fb78a374bd9c6dd04f407e))
+- Count the render-cost measurement among a gated run's skips ([a99ee17](https://github.com/xfunc-pty-ltd/formidable/commit/a99ee171570d3bf1be3894650106d0664a506b4b))
+
 ## [3.2.1] - 2026-11-18
 
 ### Fixed
@@ -357,6 +396,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Trimming happens at publish, and the defaults come first-class ([bb84eb5](https://github.com/xfunc-pty-ltd/formidable/commit/bb84eb5b3c9c514fbdbdadd32dee43d27cad21b2))
 - Retire the publish-day markers ([6255237](https://github.com/xfunc-pty-ltd/formidable/commit/62552376cd6712bc79a8cbe41fdae72fbcd05d11))
 
+[3.3.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.3.0
 [3.2.1]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.2.1
 [3.2.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.2.0
 [3.1.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.1.0
